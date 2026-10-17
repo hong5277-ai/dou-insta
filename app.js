@@ -18,12 +18,13 @@ const drafts = new Map();
 const slideIndex = new Map();
 const publishNotices = new Map();
 let publishPoll=null;
+let approvalEditor=null;
 const PROCESSING_TEXT="인스타에서 영상을 처리 중이에요. 완료되면 자동으로 게시돼요.";
 const PUBLISH_CAUTION="게시 결과를 확인해야 해요. 중복 게시를 막기 위해 다시 게시하지 말고 인스타와 최신 상태를 확인해 주세요.";
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const kst = iso => iso ? new Date(iso).toLocaleString("ko-KR", {timeZone:"Asia/Seoul",month:"long",day:"numeric",weekday:"short",hour:"numeric",minute:"2-digit"}) : "승인 후 서버에서 결정";
 const errMsg = e => (e?.message || String(e)).replace(/^.*?ERROR:\s*/, "");
-const owner = () => me?.role === "owner" && !me?.is_admin;
+const owner = () => me?.role === "owner" || !!me?.is_admin;
 const rowOf = data => Array.isArray(data) ? data[0] : data;
 function putRow(row) { if (!row?.id) return; const i=posts.findIndex(p=>p.id===row.id); if(i>=0) posts[i]=row; else posts.push(row); }
 async function boot() {
@@ -32,7 +33,7 @@ async function boot() {
   if(!session) return renderLogin();
   const {data:prof,error:pe}=await sb.from("profiles").select("role,display_name,is_admin").eq("user_id",session.user.id).single();
   if(pe || !prof) { await sb.auth.signOut(); return renderLogin("이 계정은 등록되지 않았어요."); }
-  me={...prof,id:session.user.id};
+  me={...prof,id:session.user.id,email:session.user.email||""};
   if(location.hash.includes("access_token")) history.replaceState(null,"",location.pathname);
   await load();
   sb.channel("posts").on("postgres_changes",{event:"*",schema:"public",table:"posts"},()=>load()).subscribe();
@@ -42,6 +43,7 @@ async function boot() {
 function isPlaying() { return [...$app.querySelectorAll('video[data-reel]')].some(v=>!v.paused&&!v.ended); }
 function pendingText() {
  if(isPlaying()) return "영상 재생을 유지하고 있어요. 일시정지·재생 종료 후 새로고침하거나 다음 자동 갱신을 기다려 주세요.";
+ if(approvalEditor) return "본문 편집을 유지하고 있어요. 편집창을 닫으면 최신 목록을 확인해요.";
  if(drafts.size) return "작성 중인 내용은 유지돼요. 저장하거나 새로고침하면 최신 목록을 확인해요.";
  return "새 목록이 대기 중이에요. 새로고침하거나 다음 자동 갱신을 기다려 주세요.";
 }
@@ -64,7 +66,7 @@ function syncPublishNotices() {
  });
 }
 async function load() {
- if(busy || drafts.size || loading || isPlaying()) { markPending(); return; }
+ if(busy || approvalEditor || drafts.size || loading || isPlaying()) { markPending(); return; }
  loading=true;
  try {
   const [p,a,st]=await Promise.all([
@@ -73,11 +75,11 @@ async function load() {
    me.is_admin ? sb.functions.invoke("admin",{body:{action:"status"}}) : Promise.resolve({data:null})
   ]);
   if(p.error) throw p.error; if(a.error) throw a.error;
-  if(busy || drafts.size || isPlaying()) { markPending(); return; }
+  if(busy || approvalEditor || drafts.size || isPlaying()) { markPending(); return; }
   posts=p.data || []; audits=a.data || []; status=st.error || st.data?.error ? null : st.data;
   loadError=st.error || st.data?.error ? "관리 설정 상태를 불러오지 못했어요. 새로고침해 주세요." : "";
   syncPublishNotices(); pending=false; render();
- } catch(e) { loadError="목록을 불러오지 못했어요: "+errMsg(e); if(!drafts.size&&!busy&&!isPlaying()) render(); else markPending(); }
+ } catch(e) { loadError="목록을 불러오지 못했어요: "+errMsg(e); if(!approvalEditor&&!drafts.size&&!busy&&!isPlaying()) render(); else markPending(); }
  finally { loading=false; schedulePublishPoll(); }
 }
 function renderLogin(msg) {
@@ -156,14 +158,14 @@ function changes(p) {
  if(JSON.stringify(o.media||[])!==JSON.stringify(p.media||[])) rows.push('<div>사진 변경: '+(o.media||[]).length+'장 → '+(p.media||[]).length+'장</div>');
  return '<div class="note"><b>'+(p.boss_revision_note?'사장님 수정 요청':'형 수정 요청')+'</b><div>'+esc(note||"기록 없음")+'</div><details'+(me.is_admin && p.state==="review"?' open':'')+'><summary>변경 전·후 비교 (v'+esc(o.version??"이전")+' → v'+esc(p.version)+')</summary>'+ (rows.join("")||'<p>현재까지 바뀐 내용이 없어요.</p>')+'</details></div>';
 }
-const actKo=a=>({create:"초안 등록",edit:"수정",review:"1차 검토",review_submit:"승인대기로 이동",review_edit:"텍스트 수정",admin_revision:"AI 수정 요청",approve:"승인",request_revision:"수정 요청",cancel_schedule:"예약 취소",claim:"올리기 시작",published:"게시 완료",failed:"실패",unknown:"확인 필요",blocked:"게시 막음",device_link:"폰 연결",set_publish:"자동게시 설정",revoke_sessions:"기기 로그아웃",token_refreshed:"인스타 연결 연장",token_refresh_failed:"연결 연장 실패"}[a]||a);
+const actKo=a=>({create:"초안 등록",edit:"수정",review:"1차 검토",review_submit:"승인대기로 이동",review_edit:"텍스트 수정",approval_edit:"승인대기 본문 수정",edit_approval_text:"승인대기 본문 수정",admin_revision:"AI 수정 요청",approve:"승인",request_revision:"수정 요청",cancel_schedule:"예약 취소",claim:"올리기 시작",published:"게시 완료",failed:"실패",unknown:"확인 필요",blocked:"게시 막음",device_link:"폰 연결",set_publish:"자동게시 설정",revoke_sessions:"기기 로그아웃",token_refreshed:"인스타 연결 연장",token_refresh_failed:"연결 연장 실패"}[a]||a);
 function card(p) {
  const editable=me.is_admin && p.state==="review" && tab==="admin";
  const d=drafts.get(p.id)||p, media=p.media||[], at=Math.min(slideIndex.get(p.id)||0,Math.max(0,media.length-1));
  const button=(action,text,cls="")=>'<button class="btn '+cls+'" data-act="'+action+'" data-id="'+p.id+'">'+text+'</button>';
  let btns="";
  if(editable) btns=button("admin-revise","AI에게 수정 요청","warn")+button("submit-review","승인대기로 이동","ok");
- if(owner()&&p.state==="approval"&&!publishLocked(p)) btns=button("revise","수정 요청","warn")+button("approve","승인","ok")+button("now","지금 게시","ghost");
+ if(owner()&&p.state==="approval"&&!publishLocked(p)) btns=(me.is_admin?button("edit-text","본문 수정","ghost"):"")+button("revise","수정 요청","warn")+button("approve","승인","ok")+button("now","지금 게시","ghost");
  if(owner()&&p.state==="scheduled") btns=button("cancel-schedule","예약 취소","warn");
  const log=audits.filter(a=>a.post_id===p.id).slice(0,4).map(a=>'<div>'+kst(a.at)+' · '+esc(a.actor_label||"")+' · '+esc(actKo(a.action))+(a.detail?' · '+esc(typeof a.detail==="object"?JSON.stringify(a.detail):a.detail):'')+'</div>').join("");
  const fields=editable ? '<div class="inline-editor" data-editor="'+p.id+'"><label>제목<input data-field="title" value="'+esc(d.title)+'" maxlength="500"></label><label>본문<textarea data-field="caption">'+esc(d.caption)+'</textarea></label><label>해시태그<textarea class="tag-input" data-field="hashtags">'+esc(d.hashtags)+'</textarea></label><p class="small draft-note">'+(drafts.has(p.id)?'저장하지 않은 수정 내용이 있어요.':'제목·본문·해시태그만 수정할 수 있어요.')+'</p></div>' : (p.title?'<div class="title">'+esc(p.title)+'</div>':'')+'<div class="cap">'+esc(p.caption)+'</div>'+(p.hashtags?'<div class="tags">'+esc(p.hashtags)+'</div>':'');
@@ -172,13 +174,13 @@ function card(p) {
 function inTab(p,t) { return t.states.includes(p.state) && (p.state!=="review" || p.boss_visible===true); }
 function render() {
  if(!me) return;
- if(isPlaying()) {markPending();return;}
+ if(approvalEditor || isPlaying()) {markPending();return;}
  if(tab==="admin"&&!me.is_admin) tab="approval";
  const cur=TABS.find(t=>t.key===tab);
  const list=cur ? posts.filter(p=>inTab(p,cur)) : [];
  if(tab==="published") list.reverse();
  const review=posts.filter(p=>["review","revision","failed","unknown"].includes(p.state));
- $app.innerHTML='<header><h1>DOU SNS 승인센터</h1><div class="who">도우패브릭 공식</div></header><nav>'+TABS.map(t=>'<button data-tab="'+t.key+'" class="'+(tab===t.key?'on':'')+'">'+t.label+'<span class="n">'+posts.filter(p=>inTab(p,t)).length+'</span></button>').join('')+(me.is_admin?'<button data-tab="admin" class="'+(tab==="admin"?'on':'')+'">관리 <span class="n">'+review.length+'</span></button>':'')+'</nav><main><div class="refreshbar"><span id="refresh-note">'+(drafts.size?'저장하지 않은 내용이 있어요.':pending?pendingText():'한국시간 기준 · 예약은 서버에서 결정')+'</span><button id="refresh" class="refresh">새로고침</button></div><div id="pending-refresh" class="banner warn" role="status"'+(pending?'':' hidden')+'>'+ (pending?'새로고침 대기 · '+esc(pendingText()):'')+'</div>'+banners()+(tab==="admin"?'<h2 class="section-title">1차 검토 관리</h2><p class="small">검토 중인 글만 수정할 수 있어요. 최종 승인·게시는 사장님이 진행해요.</p>'+(review.length?review.map(card).join(''):'<div class="empty">검토할 글이 없어요.</div>')+'<h2 class="section-title">관리 설정</h2>'+adminView():list.length?list.map(card).join(''):'<div class="empty">'+(tab==="approval"?'승인할 글이 없어요.':'글이 없어요.')+'</div>')+'</main>';
+ $app.innerHTML='<header><h1>DOU SNS 승인센터</h1><div class="who">로그인: '+esc(me.display_name||me.email||"등록 계정")+' · '+esc(me.is_admin?"관리자":me.role==="owner"?"사장님":me.role)+''+(me.email?' · '+esc(me.email):'')+'</div></header><nav>'+TABS.map(t=>'<button data-tab="'+t.key+'" class="'+(tab===t.key?'on':'')+'">'+t.label+'<span class="n">'+posts.filter(p=>inTab(p,t)).length+'</span></button>').join('')+(me.is_admin?'<button data-tab="admin" class="'+(tab==="admin"?'on':'')+'">관리 <span class="n">'+review.length+'</span></button>':'')+'</nav><main><div class="refreshbar"><span id="refresh-note">'+(drafts.size?'저장하지 않은 내용이 있어요.':pending?pendingText():'한국시간 기준 · 예약은 서버에서 결정')+'</span><button id="refresh" class="refresh">새로고침</button></div><div id="pending-refresh" class="banner warn" role="status"'+(pending?'':' hidden')+'>'+ (pending?'새로고침 대기 · '+esc(pendingText()):'')+'</div>'+banners()+(tab==="admin"?'<h2 class="section-title">1차 검토 관리</h2><p class="small">1차 검토 후 승인 대기로 이동해요. 관리자와 사장님 모두 최종 승인·게시할 수 있어요. 관리자는 승인 대기에서 본문도 수정할 수 있어요.</p>'+(review.length?review.map(card).join(''):'<div class="empty">검토할 글이 없어요.</div>')+'<h2 class="section-title">관리 설정</h2>'+adminView():list.length?list.map(card).join(''):'<div class="empty">'+(tab==="approval"?'승인할 글이 없어요.':'글이 없어요.')+'</div>')+'</main>';
  $app.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{if(busy)return;$app.querySelectorAll("video[data-reel]").forEach(v=>v.pause());tab=b.dataset.tab;render();scrollTo(0,0);});
  document.getElementById("refresh").onclick=async()=>{if(busy)return;if(isPlaying()){markPending();return;}if(drafts.size&&!confirm("저장하지 않은 수정을 버리고 새로고침할까요?"))return;drafts.clear();await load();};
  $app.querySelectorAll('[data-act]').forEach(b=>b.onclick=()=>act(b.dataset.act,Number(b.dataset.id)));
@@ -215,6 +217,79 @@ async function rpcRow(name,args) {
  if(!r?.id || r.version==null) throw new Error("서버 응답을 확인하지 못했어요. 새로고침해 상태를 확인하고, 중복 실행하지 마세요.");
  putRow(r); return r;
 }
+
+// Approval text editing is admin-only; the RPC enforces authorization/version atomically.
+// Opening/closing this separate dialog never changes the row, media or review stage.
+function approvalTextStats(values) {
+ const tags=values.hashtags.trim();
+ const count=((values.caption+" "+tags).match(/#[^\s#]+/gu)||[]).length;
+ const length=(values.caption+(tags?"\n\n"+tags:"")).length;
+ return {count,length};
+}
+function openApprovalEditor(p) {
+ if(busy||approvalEditor||!me?.is_admin||p.state!=="approval"||publishLocked(p)) return;
+ const editor={id:p.id,version:p.version,dirty:false,saving:false,stale:false};
+ const dialog=document.createElement("dialog");
+ dialog.className="approval-text-dialog";
+ dialog.setAttribute("aria-labelledby","approval-edit-title");
+ dialog.innerHTML='<form class="inline-editor" novalidate><h2 id="approval-edit-title">승인 대기 본문 수정</h2><p class="small">v'+esc(p.version)+' · 제목·본문·해시태그만 저장해요. 사진·영상은 바뀌지 않으며 승인·게시되지 않아요.</p><label>제목<input name="title" maxlength="500" value="'+esc(p.title)+'"></label><label>본문<textarea name="caption">'+esc(p.caption)+'</textarea></label><label>해시태그 (최대 5개)<textarea name="hashtags" class="tag-input">'+esc(p.hashtags)+'</textarea></label><p class="small" data-count role="status"></p><p class="err" data-error role="alert" hidden></p><div class="btns"><button type="button" class="btn ghost" data-close>닫기</button><button type="submit" class="btn ok" data-save>본문만 저장</button></div></form>';
+ editor.dialog=dialog; approvalEditor=editor;
+ const form=dialog.querySelector("form"), save=dialog.querySelector("[data-save]"), close=dialog.querySelector("[data-close]"), errorBox=dialog.querySelector("[data-error]");
+ const fields={title:form.elements.namedItem("title"),caption:form.elements.namedItem("caption"),hashtags:form.elements.namedItem("hashtags")};
+ const values=()=>Object.fromEntries(Object.entries(fields).map(([key,input])=>[key,input.value]));
+ const original=values();
+ const showError=text=>{errorBox.textContent=text;errorBox.hidden=!text;};
+ const update=()=>{
+  const v=values(), stats=approvalTextStats(v);
+  editor.dirty=Object.keys(fields).some(k=>v[k]!==original[k]);
+  dialog.querySelector("[data-count]").textContent='본문·해시태그 '+stats.length.toLocaleString("ko-KR")+'/2,200자 · 해시태그 '+stats.count+'/5개'+(editor.dirty?' · 저장하지 않은 수정 내용':'');
+  save.disabled=busy||editor.saving||editor.stale||!editor.dirty||stats.length>2200||stats.count>5||v.title.length>500;
+ };
+ Object.values(fields).forEach(input=>input.oninput=()=>{if(!editor.stale)showError("");update();});
+ const dismiss=()=>{
+  if(busy||editor.saving)return;
+  if(editor.dirty&&!confirm("저장하지 않은 수정을 버리고 닫을까요?"))return;
+  dialog.close();dialog.remove();approvalEditor=null;
+  if(pending) void load();
+ };
+ close.onclick=dismiss;
+ dialog.oncancel=e=>{e.preventDefault();dismiss();};
+ form.onsubmit=async e=>{
+  e.preventDefault();
+  if(busy||editor.saving||editor.stale||!editor.dirty)return;
+  const v=values(), stats=approvalTextStats(v), cached=posts.find(row=>row.id===editor.id);
+  if(!me?.is_admin||cached?.state!=="approval"||cached.version!==editor.version||publishLocked(cached)) {editor.stale=true;showError("글 상태가 바뀌었어요. 닫고 최신 목록을 확인해 주세요.");update();return;}
+  if(stats.count>5||stats.length>2200||v.title.length>500){showError("해시태그는 5개, 본문·해시태그 합계는 2,200자 이내로 입력해 주세요.");update();return;}
+  busy=true;editor.saving=true;showError("");
+  $app.querySelectorAll("button,input,textarea").forEach(el=>el.disabled=true);
+  dialog.querySelectorAll("button,input,textarea").forEach(el=>el.disabled=true);
+  let saved=false, submitted=false;
+  try {
+   const {data:current,error:checkError}=await sb.from("posts").select("*").eq("id",editor.id).single();
+   if(checkError)throw checkError;
+   if(!current||current.state!=="approval"||current.version!==editor.version||publishLocked(current)) {editor.stale=true;throw new Error("다른 곳에서 글을 변경했어요. 닫고 새로고침한 뒤 다시 수정해 주세요.");}
+   submitted=true;
+   const {data,error}=await sb.rpc("edit_approval_text",{p_id:editor.id,p_version:editor.version,p_title:v.title,p_caption:v.caption,p_hashtags:v.hashtags});
+   if(error)throw error;
+   const row=rowOf(data);
+   if(row?.id!==editor.id||row.state!=="approval"||!(row.version>editor.version))throw new Error("저장 결과를 확인하지 못했어요. 닫고 최신 목록을 확인해 주세요.");
+   putRow(row);saved=true;editor.dirty=false;
+   dialog.close();dialog.remove();approvalEditor=null;
+   alert("본문을 저장했어요. 승인 대기 상태이며 승인·게시하지 않았어요.");
+  } catch(error) {
+   // A sent request may have committed even when its response was lost. Never retry blindly.
+   if(submitted)editor.stale=true;
+   showError("저장하지 못했거나 결과 확인이 필요해요: "+errMsg(error)+(editor.stale?" 닫고 새로고침해 확인해 주세요.":""));
+  } finally {
+   busy=false;editor.saving=false;
+   $app.querySelectorAll("button,input,textarea").forEach(el=>el.disabled=false);
+   if(saved){render();await load();}
+   else {dialog.querySelectorAll("button,input,textarea").forEach(el=>el.disabled=false);Object.values(fields).forEach(input=>input.disabled=editor.stale);update();}
+  }
+ };
+ document.body.appendChild(dialog);update();dialog.showModal();fields.title.focus();
+}
+
 async function saveReview(p,submit) {
  const d=drafts.get(p.id)||p;
  const r=await rpcRow("review_post",{p_id:p.id,p_version:d.version,p_title:d.title||"",p_caption:d.caption||"",p_hashtags:d.hashtags||"",p_submit:submit});
@@ -223,8 +298,10 @@ async function saveReview(p,submit) {
 async function act(kind,id) {
  if(busy) return;
  let p=posts.find(x=>x.id===id); if(!p)return;
- const adminAction=["save-review","submit-review","admin-revise"].includes(kind);
- if(adminAction?(!me.is_admin||p.state!=="review"):!owner()) return;
+ if(approvalEditor) return;
+ const adminAction=["save-review","submit-review","admin-revise","edit-text"].includes(kind);
+ if(adminAction?(!me.is_admin||p.state!==(kind==="edit-text"?"approval":"review")):!owner()) return;
+ if(kind==="edit-text") {if(publishLocked(p)) {alert(publishNotices.get(id)?.text||PROCESSING_TEXT);return;}openApprovalEditor(p);return;}
  if(["now","approve","revise"].includes(kind)&&publishLocked(p)) {alert(publishNotices.get(id)?.text||PROCESSING_TEXT);return;}
  let note="";
  if(["revise","admin-revise"].includes(kind)) {note=prompt("어떻게 고칠까요? 수정할 내용을 적어주세요.")?.trim();if(!note)return;}
@@ -276,7 +353,7 @@ async function act(kind,id) {
  } catch(e) {alert("완료하지 못했어요: "+errMsg(e));}
  finally {busy=false;$app.querySelectorAll("button,input,textarea").forEach(b=>b.disabled=false);render();await load();}
 }
-window.addEventListener("beforeunload",e=>{if(drafts.size){e.preventDefault();e.returnValue="";}});
+window.addEventListener("beforeunload",e=>{if(drafts.size||approvalEditor?.dirty){e.preventDefault();e.returnValue="";}});
 function adminView() {
   const exp = status?.token_expires_at ? new Date(status.token_expires_at).toLocaleDateString("ko-KR") : "모름";
   return `<div class="card"><div class="body">
