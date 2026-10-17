@@ -1,7 +1,7 @@
 // 도우 인스타 승인함 (사장님·제문이형 폰용)
 // 모든 승인/수정/취소는 서버 DB 함수가 검사함. 이 화면은 버튼만 보여줌.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-import { SB_URL, SB_ANON } from "./config.js";
+import { SB_URL, SB_ANON } from "./config.js?v=3";
 import QRCode from "https://esm.sh/qrcode@1.5.4";
 
 const sb = createClient(SB_URL, SB_ANON, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
