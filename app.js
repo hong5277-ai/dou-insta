@@ -52,20 +52,37 @@ async function load() {
 }
 
 function renderLogin(msg) {
-  $app.innerHTML = `<div class="center">
-    <h2>도우 인스타 승인함</h2>
-    ${msg ? `<p class="banner bad">${esc(msg)}</p>` : ""}
-    <p>이 폰은 아직 연결되지 않았어요.<br><b>제문이형에게 "폰 연결 링크"</b>를 받아서 눌러주세요.</p>
-    <p class="small" style="margin-top:40px">관리자 이메일 로그인</p>
-    <input type="text" id="em" inputmode="email" placeholder="이메일" autocomplete="email">
-    <button class="btn ghost" id="send" style="margin-top:10px">로그인 링크 받기</button>
-    <p class="small" id="sent"></p></div>`;
-  document.getElementById("send").onclick = async () => {
-    const email = document.getElementById("em").value.trim();
-    if (!email) return;
-    const { error } = await sb.auth.signInWithOtp({ email, options: { shouldCreateUser: false, emailRedirectTo: location.origin + location.pathname } });
-    document.getElementById("sent").textContent = error ? "보내기 실패: " + errMsg(error) : "메일함에서 로그인 링크를 눌러주세요.";
+  const PEOPLE = [{ name: "사장님", email: "sajangnim@doufabric.com" }, { name: "제문이형", email: "hong5277@naver.com" }];
+  let who = localStorage.getItem("dou_last_who") || "";
+  const draw = () => {
+    $app.innerHTML = `<div class="center">
+      <h2>도우 인스타 승인함</h2>
+      ${msg ? `<p class="banner bad">${esc(msg)}</p>` : ""}
+      <p><b>누구세요?</b></p>
+      <div class="btns">${PEOPLE.map((p) => `<button class="btn ${who === p.name ? "" : "ghost"}" data-who="${p.name}">${p.name}</button>`).join("")}</div>
+      ${who ? `<label style="text-align:left">비밀번호</label>
+      <input type="password" id="pw" autocomplete="current-password" autocapitalize="off" autocorrect="off" spellcheck="false" style="font-size:24px;text-align:center">
+      <div class="btns"><button class="btn ok" id="go">들어가기</button></div>
+      <p class="small">한 번 들어가면 이 폰에서는 계속 로그인돼 있어요.</p>` : ""}
+    </div>`;
+    $app.querySelectorAll("[data-who]").forEach((b) => (b.onclick = () => { who = b.dataset.who; msg = ""; draw(); setTimeout(() => document.getElementById("pw")?.focus(), 50); }));
+    const go = document.getElementById("go");
+    if (go) {
+      const submit = async () => {
+        const pw = document.getElementById("pw").value;
+        if (!pw) return;
+        go.disabled = true;
+        const email = PEOPLE.find((p) => p.name === who).email;
+        const { error } = await sb.auth.signInWithPassword({ email, password: pw });
+        if (error) { msg = "비밀번호가 맞지 않아요. 다시 눌러주세요."; go.disabled = false; return draw(); }
+        localStorage.setItem("dou_last_who", who);
+        location.reload();
+      };
+      go.onclick = submit;
+      document.getElementById("pw").onkeydown = (e) => { if (e.key === "Enter") submit(); };
+    }
   };
+  draw();
 }
 
 function banners() {
