@@ -202,7 +202,7 @@ function card(p) {
  const button=(action,text,cls="")=>'<button class="btn '+cls+'" data-act="'+action+'" data-id="'+p.id+'">'+(BI[action]||"")+'<span>'+text+'</span></button>';
  let btns="";
  if(editable) btns=button("admin-revise","AI에게 수정 요청","warn")+button("submit-review","관리자 승인","ok");
- if(owner()&&p.state==="approval"&&!publishLocked(p)) btns=(me.is_admin?button("edit-text","본문 수정","ghost"):"")+button("revise","수정 요청","warn")+button("approve","승인","ok")+button("now","지금 게시","now");
+ if(owner()&&p.state==="approval"&&!publishLocked(p)) btns=button("edit-text","본문 수정","ghost")+button("revise","수정 요청","warn")+button("approve","승인","ok")+button("now","지금 게시","now");
  if(owner()&&p.state==="scheduled") btns=button("cancel-schedule","예약 취소","warn");
  const log=me.is_admin && tab==="adminApproval" ? audits.filter(a=>a.post_id===p.id).slice(0,4).map(a=>'<div>'+kst(a.at)+' · '+esc(a.actor_label||"")+' · '+esc(actKo(a.action))+(a.detail?' · '+esc(typeof a.detail==="object"?JSON.stringify(a.detail):a.detail):'')+'</div>').join("") : "";
  const fields=editable ? '<div class="inline-editor" data-editor="'+p.id+'"><label>제목(관리용)<input data-field="title" value="'+esc(d.title)+'" maxlength="500"></label><label>본문<textarea data-field="caption">'+esc(d.caption)+'</textarea></label><label>해시태그<textarea class="tag-input" data-field="hashtags">'+esc(d.hashtags)+'</textarea></label><p class="small draft-note">'+(drafts.has(p.id)?'저장하지 않은 수정 내용이 있어요.':'제목·본문·해시태그만 수정할 수 있어요.')+'</p></div>' : '<div class="cap'+(String(p.caption||"").split("\n").length>5||String(p.caption||"").length>180?' clamp':'')+'" data-cap="'+p.id+'">'+esc(p.caption)+'</div>'+(String(p.caption||"").split("\n").length>5||String(p.caption||"").length>180?'<button class="more" data-more="'+p.id+'">본문 전체 보기</button>':'')+(p.hashtags?'<div class="tags">'+esc(p.hashtags)+'</div>':'');
@@ -269,7 +269,7 @@ function approvalTextStats(values) {
  return {count,length};
 }
 function openApprovalEditor(p) {
- if(busy||approvalEditor||!me?.is_admin||p.state!=="approval"||publishLocked(p)) return;
+ if(busy||approvalEditor||!owner()||p.state!=="approval"||publishLocked(p)) return;
  const editor={id:p.id,version:p.version,dirty:false,saving:false,stale:false};
  const dialog=document.createElement("dialog");
  dialog.className="approval-text-dialog";
@@ -343,8 +343,8 @@ async function act(kind,id) {
  if(busy) return;
  let p=posts.find(x=>x.id===id); if(!p)return;
  if(approvalEditor) return;
- const adminAction=["save-review","submit-review","admin-revise","edit-text"].includes(kind);
- if(adminAction?(!me.is_admin||p.state!==(kind==="edit-text"?"approval":"review")):!owner()) return;
+ const adminAction=["save-review","submit-review","admin-revise"].includes(kind);
+ if(kind==="edit-text"?(!owner()||p.state!=="approval"):adminAction?(!me.is_admin||p.state!=="review"):!owner()) return;
  if(kind==="edit-text") {if(publishLocked(p)) {alert(publishNotices.get(id)?.text||PROCESSING_TEXT);return;}openApprovalEditor(p);return;}
  if(["now","approve","revise"].includes(kind)&&publishLocked(p)) {alert(publishNotices.get(id)?.text||PROCESSING_TEXT);return;}
  let note="";
