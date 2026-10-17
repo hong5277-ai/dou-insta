@@ -12,7 +12,9 @@ const TABS = [
  { key: "scheduled", label: "예약됨", states: ["scheduled", "publishing"] },
  { key: "published", label: "게시 완료", states: ["published"] }
 ];
-const STATE_KO = {review:"1차 검토 중",approval:"승인 대기",revision:"수정 중",scheduled:"예약됨",publishing:"올리는 중",published:"게시 완료",failed:"올리기 실패",unknown:"확인 필요",cancelled:"취소됨"};
+const ADMIN_APPROVAL_TAB = {key:"adminApproval",label:"관리자 승인",states:["review"]};
+const visibleTabs = () => me?.is_admin ? [ADMIN_APPROVAL_TAB,...TABS] : TABS;
+const STATE_KO = {review:"관리자 승인 대기",approval:"승인 대기",revision:"수정 중",scheduled:"예약됨",publishing:"올리는 중",published:"게시 완료",failed:"올리기 실패",unknown:"확인 필요",cancelled:"취소됨"};
 let me=null, status=null, posts=[], audits=[], tab="approval", busy=false, loading=false, pending=false, loadError="";
 const drafts = new Map();
 const slideIndex = new Map();
@@ -34,6 +36,7 @@ async function boot() {
   const {data:prof,error:pe}=await sb.from("profiles").select("role,display_name,is_admin").eq("user_id",session.user.id).single();
   if(pe || !prof) { await sb.auth.signOut(); return renderLogin("이 계정은 등록되지 않았어요."); }
   me={...prof,id:session.user.id,email:session.user.email||""};
+  if(me.is_admin) tab="adminApproval";
   if(location.hash.includes("access_token")) history.replaceState(null,"",location.pathname);
   await load();
   sb.channel("posts").on("postgres_changes",{event:"*",schema:"public",table:"posts"},()=>load()).subscribe();
@@ -144,7 +147,8 @@ function publishNotice(p) {
 function publishLocked(p) { return publishNotices.has(p.id)||p.state==="publishing"||p.publish_phase==="sending"; }
 
 function changes(p) {
- const o=p.prev_snapshot, note=p.boss_revision_note || o?.note || p.revision_note;
+ if(!me?.is_admin || tab!=="adminApproval") return "";
+ const o=p.prev_snapshot, note=p.revision_note || p.boss_revision_note || o?.note;
  if(!o) return note ? '<div class="note"><b>수정 요청</b><div>'+esc(note)+'</div></div>' : "";
  if(!["review","approval","revision"].includes(p.state)) return note ? '<div class="note">'+esc(note)+'</div>' : "";
  const rows=["title","caption","hashtags"].filter(k=>(o[k]||"")!==(p[k]||"")).map(k=>'<div class="diff"><b>'+({title:"제목",caption:"본문",hashtags:"해시태그"}[k])+'</b><div class="before"><small>이전</small><div>'+esc(o[k]||"(없음)")+'</div></div><div class="after"><small>현재</small><div>'+esc(p[k]||"(없음)")+'</div></div></div>');
@@ -156,38 +160,41 @@ function changes(p) {
   rows.push('<div class="diff"><b>'+label+'</b><div class="before"><small>이전</small><div>'+value(o,false)+'</div></div><div class="after"><small>현재</small><div>'+value(p,true)+'</div></div></div>');
  }
  if(JSON.stringify(o.media||[])!==JSON.stringify(p.media||[])) rows.push('<div>사진 변경: '+(o.media||[]).length+'장 → '+(p.media||[]).length+'장</div>');
- return '<div class="note"><b>'+(p.boss_revision_note?'사장님 수정 요청':'형 수정 요청')+'</b><div>'+esc(note||"기록 없음")+'</div><details'+(me.is_admin && p.state==="review"?' open':'')+'><summary>변경 전·후 비교 (v'+esc(o.version??"이전")+' → v'+esc(p.version)+')</summary>'+ (rows.join("")||'<p>현재까지 바뀐 내용이 없어요.</p>')+'</details></div>';
+ return '<div class="note">'+(p.boss_revision_note&&p.boss_revision_note!==note?'<b>사장님 요청 원문</b><div>'+esc(p.boss_revision_note)+'</div>':'')+'<b>수정 요청</b><div>'+esc(note||"기록 없음")+'</div><details'+(me.is_admin && p.state==="review"?' open':'')+'><summary>변경 전·후 비교 (v'+esc(o.version??"이전")+' → v'+esc(p.version)+')</summary>'+ (rows.join("")||'<p>현재까지 바뀐 내용이 없어요.</p>')+'</details></div>';
 }
 const actKo=a=>({create:"초안 등록",edit:"수정",review:"1차 검토",review_submit:"승인대기로 이동",review_edit:"텍스트 수정",approval_edit:"승인대기 본문 수정",edit_approval_text:"승인대기 본문 수정",admin_revision:"AI 수정 요청",approve:"승인",request_revision:"수정 요청",cancel_schedule:"예약 취소",claim:"올리기 시작",published:"게시 완료",failed:"실패",unknown:"확인 필요",blocked:"게시 막음",device_link:"폰 연결",set_publish:"자동게시 설정",revoke_sessions:"기기 로그아웃",token_refreshed:"인스타 연결 연장",token_refresh_failed:"연결 연장 실패"}[a]||a);
 function card(p) {
- const editable=me.is_admin && p.state==="review" && tab==="admin";
+ const editable=me.is_admin && p.state==="review" && tab==="adminApproval";
  const d=drafts.get(p.id)||p, media=p.media||[], at=Math.min(slideIndex.get(p.id)||0,Math.max(0,media.length-1));
  const button=(action,text,cls="")=>'<button class="btn '+cls+'" data-act="'+action+'" data-id="'+p.id+'">'+text+'</button>';
  let btns="";
- if(editable) btns=button("admin-revise","AI에게 수정 요청","warn")+button("submit-review","승인대기로 이동","ok");
+ if(editable) btns=button("admin-revise","AI에게 수정 요청","warn")+button("submit-review","관리자 승인","ok");
  if(owner()&&p.state==="approval"&&!publishLocked(p)) btns=(me.is_admin?button("edit-text","본문 수정","ghost"):"")+button("revise","수정 요청","warn")+button("approve","승인","ok")+button("now","지금 게시","ghost");
  if(owner()&&p.state==="scheduled") btns=button("cancel-schedule","예약 취소","warn");
- const log=audits.filter(a=>a.post_id===p.id).slice(0,4).map(a=>'<div>'+kst(a.at)+' · '+esc(a.actor_label||"")+' · '+esc(actKo(a.action))+(a.detail?' · '+esc(typeof a.detail==="object"?JSON.stringify(a.detail):a.detail):'')+'</div>').join("");
- const fields=editable ? '<div class="inline-editor" data-editor="'+p.id+'"><label>제목<input data-field="title" value="'+esc(d.title)+'" maxlength="500"></label><label>본문<textarea data-field="caption">'+esc(d.caption)+'</textarea></label><label>해시태그<textarea class="tag-input" data-field="hashtags">'+esc(d.hashtags)+'</textarea></label><p class="small draft-note">'+(drafts.has(p.id)?'저장하지 않은 수정 내용이 있어요.':'제목·본문·해시태그만 수정할 수 있어요.')+'</p></div>' : (p.title?'<div class="title">'+esc(p.title)+'</div>':'')+'<div class="cap">'+esc(p.caption)+'</div>'+(p.hashtags?'<div class="tags">'+esc(p.hashtags)+'</div>':'');
+ const log=me.is_admin && tab==="adminApproval" ? audits.filter(a=>a.post_id===p.id).slice(0,4).map(a=>'<div>'+kst(a.at)+' · '+esc(a.actor_label||"")+' · '+esc(actKo(a.action))+(a.detail?' · '+esc(typeof a.detail==="object"?JSON.stringify(a.detail):a.detail):'')+'</div>').join("") : "";
+ const fields=editable ? '<div class="inline-editor" data-editor="'+p.id+'"><label>제목(관리용)<input data-field="title" value="'+esc(d.title)+'" maxlength="500"></label><label>본문<textarea data-field="caption">'+esc(d.caption)+'</textarea></label><label>해시태그<textarea class="tag-input" data-field="hashtags">'+esc(d.hashtags)+'</textarea></label><p class="small draft-note">'+(drafts.has(p.id)?'저장하지 않은 수정 내용이 있어요.':'제목·본문·해시태그만 수정할 수 있어요.')+'</p></div>' : (p.title?'<div class="title">'+esc(p.title)+'</div>':'')+'<div class="cap">'+esc(p.caption)+'</div>'+(p.hashtags?'<div class="tags">'+esc(p.hashtags)+'</div>':'');
  return '<article class="card" data-post="'+p.id+'"><div class="ig-head"><div class="avatar">DOU</div><div class="ig-name"><b>도우패브릭 공식</b><span>'+esc(p.title||"인스타 게시글")+'</span></div><span class="version">v'+esc(p.version)+'</span></div>'+ (contentType(p)==="REELS"?reelPreview(p):media.length?'<div class="media"><div class="pics" data-pics="'+p.id+'">'+media.map((u,i)=>'<img loading="lazy" src="'+esc(u)+'" alt="게시 사진 '+(i+1)+' / '+media.length+'">').join('')+'</div>'+(media.length>1?'<button class="arrow prev" data-slide="-1" aria-label="이전 사진">‹</button><button class="arrow next" data-slide="1" aria-label="다음 사진">›</button>':'')+'<span class="counter">'+(at+1)+'/'+media.length+'</span></div>':'')+'<div class="body"><span class="content-type">'+contentLabel(p)+'</span><span class="state s-'+p.state+'">'+esc(p.state==="review"&&!me.is_admin?"수정 중":STATE_KO[p.state]||p.state)+'</span>'+publishNotice(p)+fields+'<div class="meta">'+(p.state==="published"?'게시 시간: '+kst(p.published_at):'게시 예정: '+kst(p.scheduled_at))+'</div>'+changes(p)+(["revision","review"].includes(p.state)&&!me.is_admin?'<div class="note">수정 중이에요. 수정이 끝나면 다시 승인 대기에 올라와요.</div>':'')+(p.error&&p.state!=="published"?'<div class="err">'+esc(p.error)+'</div>':'')+(p.ig_permalink?'<a class="perm" href="'+esc(p.ig_permalink)+'" target="_blank" rel="noopener noreferrer">인스타에서 보기</a>':'')+'<div class="btns">'+btns+'</div>'+(log?'<div class="log">'+log+'</div>':'')+'</div></article>';
 }
-function inTab(p,t) { return t.states.includes(p.state) && (p.state!=="review" || p.boss_visible===true); }
+function inTab(p,t) {
+ if(t.key==="adminApproval") return !!me?.is_admin && p.state==="review";
+ if(p.state==="review" && me?.is_admin) return false;
+ return t.states.includes(p.state) && (p.state!=="review" || p.boss_visible===true);
+}
 function render() {
  if(!me) return;
  if(approvalEditor || isPlaying()) {markPending();return;}
- if(tab==="admin"&&!me.is_admin) tab="approval";
- const cur=TABS.find(t=>t.key===tab);
+ if(["admin","adminApproval"].includes(tab)&&!me.is_admin) tab="approval";
+ const cur=visibleTabs().find(t=>t.key===tab);
  const list=cur ? posts.filter(p=>inTab(p,cur)) : [];
  if(tab==="published") list.reverse();
- const review=posts.filter(p=>["review","revision","failed","unknown"].includes(p.state));
- $app.innerHTML='<header><h1>DOU SNS 승인센터</h1><div class="who">로그인: '+esc(me.display_name||me.email||"등록 계정")+' · '+esc(me.is_admin?"관리자":me.role==="owner"?"사장님":me.role)+''+(me.email?' · '+esc(me.email):'')+'</div></header><nav>'+TABS.map(t=>'<button data-tab="'+t.key+'" class="'+(tab===t.key?'on':'')+'">'+t.label+'<span class="n">'+posts.filter(p=>inTab(p,t)).length+'</span></button>').join('')+(me.is_admin?'<button data-tab="admin" class="'+(tab==="admin"?'on':'')+'">관리 <span class="n">'+review.length+'</span></button>':'')+'</nav><main><div class="refreshbar"><span id="refresh-note">'+(drafts.size?'저장하지 않은 내용이 있어요.':pending?pendingText():'한국시간 기준 · 예약은 서버에서 결정')+'</span><button id="refresh" class="refresh">새로고침</button></div><div id="pending-refresh" class="banner warn" role="status"'+(pending?'':' hidden')+'>'+ (pending?'새로고침 대기 · '+esc(pendingText()):'')+'</div>'+banners()+(tab==="admin"?'<h2 class="section-title">1차 검토 관리</h2><p class="small">1차 검토 후 승인 대기로 이동해요. 관리자와 사장님 모두 최종 승인·게시할 수 있어요. 관리자는 승인 대기에서 본문도 수정할 수 있어요.</p>'+(review.length?review.map(card).join(''):'<div class="empty">검토할 글이 없어요.</div>')+'<h2 class="section-title">관리 설정</h2>'+adminView():list.length?list.map(card).join(''):'<div class="empty">'+(tab==="approval"?'승인할 글이 없어요.':'글이 없어요.')+'</div>')+'</main>';
+ $app.innerHTML='<header><h1>DOU SNS 승인센터</h1><div class="who">로그인: '+esc(me.display_name||me.email||"등록 계정")+' · '+esc(me.is_admin?"관리자":me.role==="owner"?"사장님":me.role)+''+(me.email?' · '+esc(me.email):'')+'</div></header><nav>'+visibleTabs().map(t=>'<button data-tab="'+t.key+'" class="'+(tab===t.key?'on':'')+'">'+t.label+'<span class="n">'+posts.filter(p=>inTab(p,t)).length+'</span></button>').join('')+(me.is_admin?'<button data-tab="admin" class="'+(tab==="admin"?'on':'')+'">관리</button>':'')+'</nav><main><div class="refreshbar"><span id="refresh-note">'+(drafts.size?'저장하지 않은 내용이 있어요.':pending?pendingText():'한국시간 기준 · 예약은 서버에서 결정')+'</span><button id="refresh" class="refresh">새로고침</button></div><div id="pending-refresh" class="banner warn" role="status"'+(pending?'':' hidden')+'>'+ (pending?'새로고침 대기 · '+esc(pendingText()):'')+'</div>'+banners()+(tab==="admin"?'<h2 class="section-title">관리 설정</h2>'+adminView():tab==="adminApproval"?'<h2 class="section-title">관리자 승인 대기</h2><p class="small">소개글·해시태그를 바로 고친 뒤 관리자 승인을 누르세요. 사장님 승인 대기로 이동하며 인스타에는 게시되지 않아요.</p>'+(list.length?list.map(card).join(''):'<div class="empty">관리자 승인을 기다리는 글이 없어요.</div>'):list.length?list.map(card).join(''):'<div class="empty">'+(tab==="approval"?'승인할 글이 없어요.':'글이 없어요.')+'</div>')+'</main>';
  $app.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{if(busy)return;$app.querySelectorAll("video[data-reel]").forEach(v=>v.pause());tab=b.dataset.tab;render();scrollTo(0,0);});
  document.getElementById("refresh").onclick=async()=>{if(busy)return;if(isPlaying()){markPending();return;}if(drafts.size&&!confirm("저장하지 않은 수정을 버리고 새로고침할까요?"))return;drafts.clear();await load();};
  $app.querySelectorAll('[data-act]').forEach(b=>b.onclick=()=>act(b.dataset.act,Number(b.dataset.id)));
  $app.querySelectorAll('[data-editor]').forEach(el=>el.querySelectorAll('[data-field]').forEach(input=>input.oninput=()=>{
   const id=Number(el.dataset.editor), p=posts.find(x=>x.id===id);
   const d=drafts.get(id)||{title:p.title||"",caption:p.caption||"",hashtags:p.hashtags||"",version:p.version};
-  d[input.dataset.field]=input.value; drafts.set(id,d); el.querySelector('.draft-note').textContent="저장하지 않은 수정 내용이 있어요.";
+  d[input.dataset.field]=input.value; drafts.set(id,d); const stats=approvalTextStats(d);el.querySelector('.draft-note').textContent="저장하지 않은 수정 내용 · "+stats.length+"/2,200자 · 해시태그 "+stats.count+"/5개"+(stats.count>5||stats.length>2200?" · 제한을 넘었어요. 줄여주세요.":"");
   document.getElementById('refresh-note').textContent="작성 중인 내용은 자동 새로고침으로 지워지지 않아요.";
  }));
  $app.querySelectorAll('[data-pics]').forEach(el=>{
@@ -292,6 +299,8 @@ function openApprovalEditor(p) {
 
 async function saveReview(p,submit) {
  const d=drafts.get(p.id)||p;
+ const stats=approvalTextStats(d);
+ if(!String(d.caption||"").trim()||stats.count>5||stats.length>2200)throw new Error("본문을 입력하고, 본문·해시태그는 2,200자/태그 5개 이내로 맞춰주세요.");
  const r=await rpcRow("review_post",{p_id:p.id,p_version:d.version,p_title:d.title||"",p_caption:d.caption||"",p_hashtags:d.hashtags||"",p_submit:submit});
  drafts.delete(p.id); return r;
 }
@@ -310,7 +319,7 @@ async function act(kind,id) {
  if(kind==="cancel-schedule"&&!confirm("이 글의 예약을 취소할까요?"))return;
  busy=true; $app.querySelectorAll('button,input,textarea').forEach(b=>b.disabled=true);
  try {
-  if(kind==="save-review" || kind==="submit-review") {const r=await saveReview(p,kind==="submit-review");if(r.state!==(kind==="submit-review"?"approval":"review"))throw new Error("예상한 상태가 아니에요. 현재 목록을 확인해 주세요.");alert(kind==="submit-review"?"승인 대기로 이동했어요.":"내용을 저장했어요.");}
+  if(kind==="save-review" || kind==="submit-review") {const r=await saveReview(p,kind==="submit-review");if(r.state!==(kind==="submit-review"?"approval":"review"))throw new Error("예상한 상태가 아니에요. 현재 목록을 확인해 주세요.");if(kind==="submit-review") tab="approval";alert(kind==="submit-review"?"관리자 승인 완료. 사장님 승인 대기로 이동했어요. 아직 인스타에는 게시되지 않았어요.":"내용을 저장했어요.");}
   else if(kind==="admin-revise" || kind==="revise") {
    if(kind==="admin-revise"&&drafts.has(id)) p=await saveReview(p,false);
    const r=await rpcRow("request_revision",{p_id:id,p_version:p.version,p_note:note});
