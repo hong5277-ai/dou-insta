@@ -99,10 +99,9 @@ function card(p) {
   const log = audits.filter((a) => a.post_id === p.id).slice(0, 4).map((a) => `<div>${kst(a.at)} · ${esc(a.actor_label || "")} · ${esc(actKo(a.action))}${a.detail ? " · " + esc(a.detail) : ""}</div>`).join("");
   const owner = me.role === "owner";
   let btns = "";
+  if (p.state === "revision") btns += `<div class="note" style="background:#eaf1fb;color:#1f3a5f">AI가 수정해서 다시 올려드릴게요.</div>`;
   if (p.state === "approval" && owner) btns += `<button class="btn ok" data-act="approve" data-id="${p.id}">승인하고 예약하기</button><button class="btn warn" data-act="revise" data-id="${p.id}">수정 요청</button>`;
   if (p.state === "scheduled" && owner) btns += `<button class="btn warn" data-act="revise" data-id="${p.id}">예약 멈추고 수정 요청</button>`;
-  if (["approval", "revision", "failed"].includes(p.state)) btns += `<button class="btn ghost" data-act="edit" data-id="${p.id}">글·사진·시간 고치기</button>`;
-  if (["approval", "revision", "failed"].includes(p.state) && me.is_admin) btns += `<button class="btn bad" data-act="cancel" data-id="${p.id}">이 글 버리기</button>`;
   return `<div class="card">
     ${pics ? `<div class="pics">${pics}</div>` : ""}${(p.media || []).length > 1 ? `<div class="picn">옆으로 넘기면 사진 ${(p.media || []).length}장</div>` : ""}
     <div class="body">
@@ -129,10 +128,9 @@ function render() {
   <header><h1>도우 인스타 승인함</h1><div class="who">${esc(me.display_name)}${me.display_name.endsWith("님") ? "" : "님"} · ${me.role === "owner" ? "승인 권한" : "작성 권한"}</div></header>
   <nav>${TABS.map((t) => `<button data-tab="${t.key}" class="${t.key === tab ? "on" : ""}">${t.label}<span class="n">${counts[t.key]}</span></button>`).join("")}${me.is_admin ? `<button data-tab="admin" class="${tab === "admin" ? "on" : ""}">관리</button>` : ""}</nav>
   <main>${banners()}${tab === "admin" ? adminView() : list.length ? list.map(card).join("") : `<div class="empty">${cur.key === "approval" ? "승인할 글이 없어요." : "글이 없어요."}</div>`}</main>
-  ${tab !== "admin" ? `<button class="fab" id="new">＋ 새 글</button>` : ""}`;
+`;
   $app.querySelectorAll("nav button").forEach((b) => (b.onclick = () => { tab = b.dataset.tab; render(); scrollTo(0, 0); }));
   $app.querySelectorAll("[data-act]").forEach((b) => (b.onclick = () => act(b.dataset.act, Number(b.dataset.id), b)));
-  const nb = document.getElementById("new"); if (nb) nb.onclick = () => editor(null);
   if (tab === "admin") bindAdmin();
 }
 
