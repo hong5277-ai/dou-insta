@@ -126,7 +126,7 @@ function render() {
   const list = posts.filter((p) => cur.states.includes(p.state));
   if (tab === "published") list.reverse();
   $app.innerHTML = `
-  <header><h1>도우 인스타 승인함</h1><div class="who">${esc(me.display_name)}님 · ${me.role === "owner" ? "승인 권한" : "작성 권한"}</div></header>
+  <header><h1>도우 인스타 승인함</h1><div class="who">${esc(me.display_name)}${me.display_name.endsWith("님") ? "" : "님"} · ${me.role === "owner" ? "승인 권한" : "작성 권한"}</div></header>
   <nav>${TABS.map((t) => `<button data-tab="${t.key}" class="${t.key === tab ? "on" : ""}">${t.label}<span class="n">${counts[t.key]}</span></button>`).join("")}${me.is_admin ? `<button data-tab="admin" class="${tab === "admin" ? "on" : ""}">관리</button>` : ""}</nav>
   <main>${banners()}${tab === "admin" ? adminView() : list.length ? list.map(card).join("") : `<div class="empty">${cur.key === "approval" ? "승인할 글이 없어요." : "글이 없어요."}</div>`}</main>
   ${tab !== "admin" ? `<button class="fab" id="new">＋ 새 글</button>` : ""}`;
