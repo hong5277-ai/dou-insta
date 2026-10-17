@@ -49,6 +49,7 @@ const ICON = {
  inbox: svg('<path d="M4 13l2.5-7h11L20 13v6H4z"/><path d="M4 13h5l1 2h4l1-2h5"/>')
 };
 const homeTab = () => visibleTabs()[0].key;
+function toast(text){let t=document.getElementById("toast");if(!t){t=document.createElement("div");t.id="toast";t.className="toast";t.setAttribute("role","status");document.body.appendChild(t);}t.textContent=text;t.classList.add("show");clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove("show"),2600);}
 let navDepth=0;
 function setTab(next, push=true) {
  if(busy || next===tab) { scrollTo({top:0,behavior:"smooth"}); return; }
@@ -221,9 +222,12 @@ function render() {
  const cur=visibleTabs().find(t=>t.key===tab);
  const list=cur ? posts.filter(p=>inTab(p,cur)) : [];
  if(tab==="published") list.reverse();
- $app.innerHTML='<header class="appbar"><button class="brand" data-home aria-label="홈으로"><img class="logo" src="logo-dou.png?v=1" alt="DOU FABRIC" width="159" height="22"><span class="brand-sub">SNS 승인센터</span></button><span class="sp"></span><span class="role'+(me.is_admin?' admin':'')+'" title="'+esc((me.display_name||"")+" "+(me.email||""))+'">'+esc(me.is_admin?"Admin":me.role==="owner"?"Director":me.role)+'</span><button id="refresh" class="iconbtn" aria-label="새로고침" title="새로고침">'+ICON.refresh+'</button>'+(me.is_admin?'<button data-tab="admin" class="iconbtn'+(tab==="admin"?' on':'')+'" aria-label="관리 설정" title="관리 설정">'+ICON.admin+'</button>':'')+'</header><main><div class="statusline"><span class="dot"></span><span id="refresh-note">'+(drafts.size?'저장하지 않은 내용이 있어요.':pending?pendingText():'한국시간 기준 · 예약은 서버에서 결정')+'</span></div><div id="pending-refresh" class="banner warn" role="status"'+(pending?'':' hidden')+'>'+ (pending?'새로고침 대기 · '+esc(pendingText()):'')+'</div>'+banners()+(tab==="admin"?'<div class="pagehead"><h2>관리 설정</h2></div>'+adminView():tab==="adminApproval"?'<div class="pagehead"><h2>관리자 승인</h2><span class="cnt">'+list.length+'건</span></div><p class="subnote">소개글·해시태그를 바로 고친 뒤 관리자 승인을 누르세요. 사장님 승인 대기로 이동하며 인스타에는 게시되지 않아요.</p>'+(list.length?list.map(card).join(''):'<div class="empty">관리자 승인을 기다리는 글이 없어요.</div>'):'<div class="pagehead"><h2>'+esc(cur?cur.label:"")+'</h2><span class="cnt">'+(tab==="published"?'최근 30일 · ':'')+list.length+'건</span></div>'+(list.length?list.map(card).join(''):'<div class="empty">'+ICON.inbox+(tab==="approval"?'승인할 글이 없어요.':'글이 없어요.')+'</div>'))+'</main><nav class="tabbar" aria-label="메뉴"><div class="tabbar-in">'+visibleTabs().map(t=>{const n=posts.filter(p=>inTab(p,t)).length;return '<button data-tab="'+t.key+'" class="'+(tab===t.key?'on':'')+'"'+(tab===t.key?' aria-current="page"':'')+'>'+(ICON[t.key]||"")+'<span class="lb">'+t.label+'</span><span class="n'+(n?(["approval","adminApproval"].includes(t.key)?' hot':''):' zero')+'">'+n+'</span></button>';}).join('')+'</div></nav>';
+ $app.innerHTML='<header class="appbar"><button class="brand" data-home aria-label="홈으로"><img class="logo" src="logo-dou.png?v=1" alt="DOU FABRIC" width="159" height="22"><span class="brand-sub">SNS 승인센터</span></button><span class="sp"></span><button class="role'+(me.is_admin?' admin':'')+'" data-account aria-haspopup="true" aria-label="계정 메뉴">'+esc(me.is_admin?"Admin":me.role==="owner"?"Director":me.role)+'<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button><div class="acct" data-acct hidden><div class="acct-who"><b>'+esc(me.display_name||"")+'</b><span>'+esc(me.email||"")+'</span></div><button class="acct-out" data-logout>로그아웃</button></div><button id="refresh" class="iconbtn" aria-label="새로고침" title="새로고침">'+ICON.refresh+'</button>'+(me.is_admin?'<button data-tab="admin" class="iconbtn'+(tab==="admin"?' on':'')+'" aria-label="관리 설정" title="관리 설정">'+ICON.admin+'</button>':'')+'</header><main><div class="statusline"><span class="dot"></span><span id="refresh-note">'+(drafts.size?'저장하지 않은 내용이 있어요.':pending?pendingText():'한국시간 기준 · 예약은 서버에서 결정')+'</span></div><div id="pending-refresh" class="banner warn" role="status"'+(pending?'':' hidden')+'>'+ (pending?'새로고침 대기 · '+esc(pendingText()):'')+'</div>'+banners()+(tab==="admin"?'<div class="pagehead"><h2>관리 설정</h2></div>'+adminView():tab==="adminApproval"?'<div class="pagehead"><h2>관리자 승인</h2><span class="cnt">'+list.length+'건</span></div><p class="subnote">소개글·해시태그를 바로 고친 뒤 관리자 승인을 누르세요. 사장님 승인 대기로 이동하며 인스타에는 게시되지 않아요.</p>'+(list.length?list.map(card).join(''):'<div class="empty">관리자 승인을 기다리는 글이 없어요.</div>'):'<div class="pagehead"><h2>'+esc(cur?cur.label:"")+'</h2><span class="cnt">'+(tab==="published"?'최근 30일 · ':'')+list.length+'건</span></div>'+(list.length?list.map(card).join(''):'<div class="empty">'+ICON.inbox+(tab==="approval"?'승인할 글이 없어요.':'글이 없어요.')+'</div>'))+'</main><nav class="tabbar" aria-label="메뉴"><div class="tabbar-in">'+visibleTabs().map(t=>{const n=posts.filter(p=>inTab(p,t)).length;return '<button data-tab="'+t.key+'" class="'+(tab===t.key?'on':'')+'"'+(tab===t.key?' aria-current="page"':'')+'>'+(ICON[t.key]||"")+'<span class="lb">'+t.label+'</span><span class="n'+(n?(["approval","adminApproval"].includes(t.key)?' hot':''):' zero')+'">'+n+'</span></button>';}).join('')+'</div></nav>';
  $app.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>setTab(b.dataset.tab));
  $app.querySelectorAll('[data-home]').forEach(b=>b.onclick=()=>setTab(homeTab()));
+ const acctBtn=$app.querySelectorAll('[data-account]')[0], acctBox=$app.querySelectorAll('[data-acct]')[0];
+ if(acctBtn&&acctBox){acctBtn.onclick=e=>{e.stopPropagation();acctBox.hidden=!acctBox.hidden;};document.onclick=e=>{if(!acctBox.hidden&&!acctBox.contains(e.target))acctBox.hidden=true;};
+  acctBox.querySelector('[data-logout]').onclick=async()=>{if(busy)return;if(drafts.size&&!confirm("저장하지 않은 수정이 있어요. 그래도 로그아웃할까요?"))return;await sb.auth.signOut();location.hash="";location.reload();};}
  $app.querySelectorAll('[data-more]').forEach(b=>b.onclick=()=>{const c=$app.querySelector('[data-cap="'+b.dataset.more+'"]');if(!c)return;const open=c.classList.toggle('clamp');b.textContent=open?'본문 전체 보기':'접기';});
  document.getElementById("refresh").onclick=async()=>{if(busy)return;if(isPlaying()){markPending();return;}if(drafts.size&&!confirm("저장하지 않은 수정을 버리고 새로고침할까요?"))return;drafts.clear();await load();};
  $app.querySelectorAll('[data-act]').forEach(b=>b.onclick=()=>act(b.dataset.act,Number(b.dataset.id)));
@@ -275,7 +279,7 @@ function openApprovalEditor(p) {
  const dialog=document.createElement("dialog");
  dialog.className="approval-text-dialog";
  dialog.setAttribute("aria-labelledby","approval-edit-title");
- dialog.innerHTML='<form class="inline-editor" novalidate><h2 id="approval-edit-title">승인 대기 본문 수정</h2><p class="small">v'+esc(p.version)+' · 제목·본문·해시태그만 저장해요. 사진·영상은 바뀌지 않으며 승인·게시되지 않아요.</p><label>제목<input name="title" maxlength="500" value="'+esc(p.title)+'"></label><label>본문<textarea name="caption">'+esc(p.caption)+'</textarea></label><label>해시태그 (최대 5개)<textarea name="hashtags" class="tag-input">'+esc(p.hashtags)+'</textarea></label><p class="small" data-count role="status"></p><p class="err" data-error role="alert" hidden></p><div class="btns"><button type="button" class="btn ghost" data-close>닫기</button><button type="submit" class="btn ok" data-save>본문만 저장</button></div></form>';
+ dialog.innerHTML='<form class="inline-editor" novalidate><h2 id="approval-edit-title">승인 대기 본문 수정</h2><p class="small">v'+esc(p.version)+' · 제목·본문·해시태그만 저장해요. 사진·영상은 바뀌지 않으며 승인·게시되지 않아요.</p><label>제목<input name="title" maxlength="500" value="'+esc(p.title)+'"></label><label>본문<textarea name="caption">'+esc(p.caption)+'</textarea></label><label>해시태그 (최대 5개)<textarea name="hashtags" class="tag-input">'+esc(p.hashtags)+'</textarea></label><p class="small" data-count role="status"></p><p class="err" data-error role="alert" hidden></p><div class="discard" data-discard hidden><b>저장하지 않은 수정이 있어요.</b><span>저장할까요, 아니면 수정 전으로 두고 닫을까요?</span><div class="btns"><button type="button" class="btn ghost" data-discard-yes>저장 안 하고 닫기</button><button type="button" class="btn warn" data-discard-no>계속 수정</button></div></div><div class="btns" data-main-btns><button type="button" class="btn ghost" data-close>취소</button><button type="submit" class="btn ok" data-save>저장</button></div></form>';
  editor.dialog=dialog; approvalEditor=editor;
  const form=dialog.querySelector("form"), save=dialog.querySelector("[data-save]"), close=dialog.querySelector("[data-close]"), errorBox=dialog.querySelector("[data-error]");
  const fields={title:form.elements.namedItem("title"),caption:form.elements.namedItem("caption"),hashtags:form.elements.namedItem("hashtags")};
@@ -289,19 +293,23 @@ function openApprovalEditor(p) {
   save.disabled=busy||editor.saving||editor.stale||!editor.dirty||stats.length>2200||stats.count>5||v.title.length>500;
  };
  Object.values(fields).forEach(input=>input.oninput=()=>{if(!editor.stale)showError("");update();});
+ const discardBox=dialog.querySelector("[data-discard]"), mainBtns=dialog.querySelector("[data-main-btns]");
+ const askDiscard=on=>{discardBox.hidden=!on;mainBtns.hidden=on;if(on)discardBox.scrollIntoView({block:"nearest"});};
+ const closeNow=()=>{dialog.close();dialog.remove();approvalEditor=null;if(pending) void load();};
  const dismiss=()=>{
   if(busy||editor.saving)return;
-  if(editor.dirty&&!confirm("저장하지 않은 수정을 버리고 닫을까요?"))return;
-  dialog.close();dialog.remove();approvalEditor=null;
-  if(pending) void load();
+  if(editor.dirty){askDiscard(true);return;}
+  closeNow();
  };
+ dialog.querySelector("[data-discard-yes]").onclick=()=>{if(busy||editor.saving)return;closeNow();};
+ dialog.querySelector("[data-discard-no]").onclick=()=>{askDiscard(false);fields.caption.focus();};
  close.onclick=dismiss;
  dialog.oncancel=e=>{e.preventDefault();dismiss();};
  form.onsubmit=async e=>{
   e.preventDefault();
   if(busy||editor.saving||editor.stale||!editor.dirty)return;
   const v=values(), stats=approvalTextStats(v), cached=posts.find(row=>row.id===editor.id);
-  if(!me?.is_admin||cached?.state!=="approval"||cached.version!==editor.version||publishLocked(cached)) {editor.stale=true;showError("글 상태가 바뀌었어요. 닫고 최신 목록을 확인해 주세요.");update();return;}
+  if(!owner()||cached?.state!=="approval"||cached.version!==editor.version||publishLocked(cached)) {editor.stale=true;showError("글 상태가 바뀌었어요. 닫고 최신 목록을 확인해 주세요.");update();return;}
   if(stats.count>5||stats.length>2200||v.title.length>500){showError("해시태그는 5개, 본문·해시태그 합계는 2,200자 이내로 입력해 주세요.");update();return;}
   busy=true;editor.saving=true;showError("");
   $app.querySelectorAll("button,input,textarea").forEach(el=>el.disabled=true);
@@ -318,7 +326,7 @@ function openApprovalEditor(p) {
    if(row?.id!==editor.id||row.state!=="approval"||!(row.version>editor.version))throw new Error("저장 결과를 확인하지 못했어요. 닫고 최신 목록을 확인해 주세요.");
    putRow(row);saved=true;editor.dirty=false;
    dialog.close();dialog.remove();approvalEditor=null;
-   alert("본문을 저장했어요. 승인 대기 상태이며 승인·게시하지 않았어요.");
+   toast("저장했어요. 확인 후 승인을 눌러주세요.");
   } catch(error) {
    // A sent request may have committed even when its response was lost. Never retry blindly.
    if(submitted)editor.stale=true;
