@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1f3a5f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="도우 인스타">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>도우 인스타 승인함</title>
+<style>
+:root{--bg:#f4f1ec;--card:#fff;--ink:#1d1d1f;--sub:#5b5b60;--brand:#1f3a5f;--ok:#1e7d3a;--warn:#b35c00;--bad:#b3261e;--line:#e3ded6}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,"Apple SD Gothic Neo","Noto Sans KR","Malgun Gothic",sans-serif;font-size:19px;line-height:1.5}
+header{position:sticky;top:0;z-index:5;background:var(--brand);color:#fff;padding:14px 16px 10px}
+header h1{margin:0;font-size:22px}
+header .who{font-size:15px;opacity:.85}
+nav{display:flex;gap:6px;overflow-x:auto;padding:10px 12px;background:#fff;border-bottom:1px solid var(--line);position:sticky;top:64px;z-index:4}
+nav button{flex:0 0 auto;border:2px solid var(--line);background:#fff;border-radius:999px;padding:8px 14px;font-size:17px;font-weight:600;color:var(--sub)}
+nav button.on{border-color:var(--brand);background:var(--brand);color:#fff}
+nav .n{display:inline-block;min-width:24px;margin-left:4px;border-radius:12px;background:#e9e4dc;color:#333;font-size:14px;padding:0 6px}
+nav button.on .n{background:#fff;color:var(--brand)}
+main{padding:12px 12px 120px;max-width:640px;margin:0 auto}
+.banner{border-radius:12px;padding:12px 14px;margin:0 0 12px;font-weight:600}
+.banner.warn{background:#fff4e5;color:var(--warn);border:1px solid #f3c58a}
+.banner.bad{background:#fdecea;color:var(--bad);border:1px solid #f0b3ad}
+.banner.info{background:#eaf1fb;color:var(--brand);border:1px solid #bcd0ea}
+.card{background:var(--card);border-radius:16px;box-shadow:0 1px 3px rgba(0,0,0,.08);margin:0 0 16px;overflow:hidden}
+.pics{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;background:#ddd}
+.pics img{flex:0 0 100%;width:100%;aspect-ratio:4/5;object-fit:contain;background:#fafafa;scroll-snap-align:center}
+.picn{font-size:14px;color:var(--sub);padding:6px 14px 0}
+.body{padding:12px 16px 16px}
+.title{font-size:21px;font-weight:700;margin:2px 0 6px}
+.cap{white-space:pre-wrap;word-break:break-word}
+.tags{color:#2b5ea7;white-space:pre-wrap;margin-top:6px;font-size:17px}
+.meta{margin-top:10px;font-size:16px;color:var(--sub)}
+.meta b{color:var(--ink)}
+.note{margin-top:10px;background:#fff4e5;border-radius:10px;padding:10px;color:#6b3a00;font-size:17px}
+.err{margin-top:10px;background:#fdecea;border-radius:10px;padding:10px;color:var(--bad);font-size:16px}
+.btns{display:flex;flex-direction:column;gap:10px;margin-top:14px}
+.btn{display:block;width:100%;border:0;border-radius:14px;padding:16px;font-size:21px;font-weight:700;color:#fff;background:var(--brand)}
+.btn.ok{background:var(--ok)}
+.btn.warn{background:#fff;color:var(--warn);border:2px solid var(--warn)}
+.btn.ghost{background:#fff;color:var(--brand);border:2px solid var(--brand)}
+.btn.bad{background:#fff;color:var(--bad);border:2px solid var(--bad)}
+.btn:disabled{opacity:.5}
+.empty{text-align:center;color:var(--sub);padding:40px 10px}
+.state{display:inline-block;font-size:14px;font-weight:700;border-radius:8px;padding:2px 8px;margin-bottom:6px}
+.s-approval{background:#eaf1fb;color:var(--brand)}.s-scheduled,.s-publishing{background:#e7f5ec;color:var(--ok)}.s-published{background:#e7f5ec;color:var(--ok)}.s-revision,.s-failed,.s-unknown{background:#fff4e5;color:var(--warn)}.s-cancelled{background:#eee;color:#666}
+.fab{position:fixed;right:16px;bottom:20px;z-index:6;border:0;border-radius:999px;background:var(--brand);color:#fff;font-size:19px;font-weight:700;padding:16px 22px;box-shadow:0 4px 12px rgba(0,0,0,.25)}
+.sheet{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:10;display:flex;align-items:flex-end}
+.sheet .in{background:#fff;width:100%;max-height:92vh;overflow:auto;border-radius:18px 18px 0 0;padding:18px 16px 28px}
+.sheet h2{margin:0 0 12px;font-size:22px}
+label{display:block;font-weight:700;margin:12px 0 6px}
+textarea,input[type=text],input[type=datetime-local]{width:100%;font-size:19px;padding:12px;border:2px solid var(--line);border-radius:12px;font-family:inherit}
+textarea{min-height:140px}
+.thumbs{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.thumbs img{width:84px;height:105px;object-fit:cover;border-radius:8px;border:1px solid var(--line)}
+.center{max-width:480px;margin:60px auto;padding:0 20px;text-align:center}
+.center h2{font-size:26px}
+.small{font-size:15px;color:var(--sub)}
+.linkbox{word-break:break-all;background:#f3f3f3;border-radius:10px;padding:10px;font-size:14px;margin:10px 0}
+.log{font-size:15px;color:var(--sub);margin-top:10px;border-top:1px dashed var(--line);padding-top:8px}
+.log div{margin:2px 0}
+a.perm{display:block;margin-top:10px;font-weight:700;color:#2b5ea7}
+</style>
+</head>
+<body>
+<div id="app"><div class="center"><h2>불러오는 중…</h2></div></div>
+<script type="module" src="app.js"></script>
+</body>
+</html>
