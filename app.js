@@ -94,6 +94,23 @@ function banners() {
   return out.join("");
 }
 
+
+const tagsOf = (s) => ((s || "").match(/#[^\s#]+/g) || []);
+function changes(p) {
+  const o = p.prev_snapshot;
+  if (!o || p.state !== "approval") return "";
+  const before = tagsOf((o.caption || "") + " " + (o.hashtags || "")), after = tagsOf(p.caption + " " + p.hashtags);
+  const add = after.filter((t) => !before.includes(t)), del = before.filter((t) => !after.includes(t));
+  const rows = [];
+  if (add.length) rows.push(`<div>해시태그 추가: <b style="color:#1e7d3a">${add.map(esc).join(" ")}</b></div>`);
+  if (del.length) rows.push(`<div>해시태그 뺌: <b style="color:#b3261e">${del.map(esc).join(" ")}</b> <span class="small">(인스타는 5개까지)</span></div>`);
+  if ((o.caption || "") !== p.caption) rows.push(`<div>본문이 바뀌었어요. <details style="display:inline"><summary class="small" style="display:inline;cursor:pointer;color:#2b5ea7">전 글 보기</summary><div class="cap small" style="margin-top:6px">${esc(o.caption)}</div></details></div>`);
+  if (JSON.stringify(o.media || []) !== JSON.stringify(p.media || [])) rows.push(`<div>사진이 바뀌었어요 (${(o.media || []).length}장 → ${(p.media || []).length}장)</div>`);
+  if ((o.title || "") !== (p.title || "")) rows.push(`<div>제목이 바뀌었어요</div>`);
+  if (!rows.length) rows.push("<div>바뀐 내용이 없어요</div>");
+  return `<div class="note" style="background:#e7f5ec;color:#14532d"><b>요청하신 것:</b> ${esc(o.note || "")}<div style="margin-top:6px"><b>이렇게 고쳤어요 (v${o.version} → v${p.version})</b></div>${rows.join("")}</div>`;
+}
+
 function card(p) {
   const pics = (p.media || []).map((u) => `<img loading="lazy" src="${esc(u)}" alt="">`).join("");
   const log = audits.filter((a) => a.post_id === p.id).slice(0, 4).map((a) => `<div>${kst(a.at)} · ${esc(a.actor_label || "")} · ${esc(actKo(a.action))}${a.detail ? " · " + esc(a.detail) : ""}</div>`).join("");
@@ -110,7 +127,7 @@ function card(p) {
       <div class="cap">${esc(p.caption)}</div>
       ${p.hashtags ? `<div class="tags">${esc(p.hashtags)}</div>` : ""}
       <div class="meta">올릴 시간: <b>${kst(p.scheduled_at)}</b> · ${p.version}번째 버전</div>
-      ${p.revision_note ? `<div class="note">수정 요청: ${esc(p.revision_note)}</div>` : ""}
+      ${p.prev_snapshot && p.state === "approval" ? changes(p) : p.revision_note ? `<div class="note">수정 요청: ${esc(p.revision_note)}</div>` : ""}
       ${p.error && p.state !== "published" ? `<div class="err">${esc(p.error)}</div>` : ""}
       ${p.ig_permalink ? `<a class="perm" href="${esc(p.ig_permalink)}" target="_blank" rel="noopener">인스타에서 보기</a>` : ""}
       <div class="btns">${btns}</div>
@@ -146,7 +163,7 @@ async function act(kind, id, btn) {
       if (error) throw error;
       alert("승인했어요. 정해진 시간에 자동으로 올라갑니다.");
     } else if (kind === "revise") {
-      const note = prompt("어떻게 고칠까요? (예: 사진 바꿔줘, 글 짧게)");
+      const note = prompt("어떻게 고칠까요? 짧게 적어주세요.\n예) 해시태그에 #안감 추가\n예) 폭 150cm로 고쳐줘\n(키보드 마이크를 누르면 말로 적을 수 있어요)");
       if (!note || !note.trim()) return;
       btn.disabled = true;
       const { error } = await sb.rpc("request_revision", { p_id: id, p_version: p.version, p_note: note.trim() });
