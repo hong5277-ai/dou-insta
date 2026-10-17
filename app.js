@@ -2,6 +2,7 @@
 // 모든 승인/수정/취소는 서버 DB 함수가 검사함. 이 화면은 버튼만 보여줌.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { SB_URL, SB_ANON } from "./config.js";
+import QRCode from "https://esm.sh/qrcode@1.5.4";
 
 const sb = createClient(SB_URL, SB_ANON, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
 const $app = document.getElementById("app");
@@ -107,7 +108,7 @@ function card(p) {
       ${log ? `<div class="log">${log}</div>` : ""}
     </div></div>`;
 }
-const actKo = (a) => ({ create: "초안 등록", edit: "수정", approve: "승인", request_revision: "수정 요청", cancel: "버림", claim: "올리기 시작", published: "게시 완료", failed: "실패", unknown: "확인 필요", blocked: "게시 막음", device_link: "폰 연결", set_publish: "자동게시 설정" }[a] || a);
+const actKo = (a) => ({ create: "초안 등록", edit: "수정", approve: "승인", request_revision: "수정 요청", cancel: "버림", claim: "올리기 시작", published: "게시 완료", failed: "실패", unknown: "확인 필요", blocked: "게시 막음", device_link: "폰 연결", set_publish: "자동게시 설정", revoke_sessions: "기기 로그아웃", token_refreshed: "인스타 연결 연장", token_refresh_failed: "연결 연장 실패" }[a] || a);
 
 function render() {
   const counts = Object.fromEntries(TABS.map((t) => [t.key, posts.filter((p) => t.states.includes(p.state)).length]));
@@ -130,7 +131,8 @@ async function act(kind, id, btn) {
   if (!p) return;
   try {
     if (kind === "approve") {
-      if (!confirm(`이 글을 승인할까요?\n\n${kst(p.scheduled_at)}에 인스타에 올라갑니다.`)) return;
+      const late = !p.scheduled_at || new Date(p.scheduled_at) < new Date(Date.now() + 60e3);
+      if (!confirm(late ? "이 글을 승인할까요?\n\n승인하면 2분 뒤 바로 인스타에 올라갑니다." : `이 글을 승인할까요?\n\n${kst(p.scheduled_at)}에 인스타에 올라갑니다.`)) return;
       btn.disabled = true;
       const { error } = await sb.rpc("approve_post", { p_id: id, p_version: p.version });
       if (error) throw error;
@@ -176,7 +178,7 @@ function editor(p) {
     <input type="file" id="f" accept="image/*" multiple style="margin-top:8px;font-size:17px">
     <label>제목(메모용, 인스타엔 안 올라감)</label><input type="text" id="t" value="${esc(p?.title || "")}">
     <label>본문</label><textarea id="c">${esc(p?.caption || "")}</textarea>
-    <label>해시태그</label><textarea id="h" style="min-height:70px">${esc(p?.hashtags || "")}</textarea>
+    <label>해시태그 (최대 5개) <span id="hc" class="small"></span></label><textarea id="h" style="min-height:70px">${esc(p?.hashtags || "")}</textarea>
     <label>올릴 시간 (비워두면 승인 2분 뒤)</label><input type="datetime-local" id="s" value="${toLocalInput(p?.scheduled_at)}">
     <div class="btns"><button class="btn" id="save">${p ? "고쳐서 다시 승인 요청" : "승인 요청하기"}</button><button class="btn ghost" id="close">닫기</button></div>
     <p class="small" id="msg"></p></div>`;
@@ -184,6 +186,8 @@ function editor(p) {
   const th = el.querySelector("#th");
   const drawThumbs = () => { th.innerHTML = media.map((u, i) => `<div style="position:relative"><img src="${esc(u)}"><button data-i="${i}" style="position:absolute;top:2px;right:2px;border:0;border-radius:50%;width:28px;height:28px;background:#000a;color:#fff;font-size:16px">×</button></div>`).join(""); th.querySelectorAll("button").forEach((b) => (b.onclick = () => { media.splice(Number(b.dataset.i), 1); drawThumbs(); })); };
   drawThumbs();
+  const hc = () => { const n = ((el.querySelector("#c").value + " " + el.querySelector("#h").value).match(/#[^\s#]+/g) || []).length; el.querySelector("#hc").textContent = `지금 ${n}개` + (n > 5 ? " (5개 넘음!)" : ""); el.querySelector("#hc").style.color = n > 5 ? "#b3261e" : ""; };
+  el.querySelector("#h").oninput = hc; el.querySelector("#c").oninput = hc; hc();
   el.querySelector("#close").onclick = () => el.remove();
   el.querySelector("#f").onchange = async (ev) => {
     const msg = el.querySelector("#msg");
@@ -226,6 +230,7 @@ function adminView() {
     <p>링크를 그 사람 폰에서 한 번 열면 계속 로그인돼요. 링크는 1시간 안에 한 번만 쓸 수 있어요.</p>
     <div class="btns"><button class="btn" data-link="사장님">사장님 폰 연결 링크 만들기</button><button class="btn ghost" data-link="제문이형">내 다른 폰 연결 링크</button></div>
     <div id="lk"></div>
+    <div class="btns" style="margin-top:18px"><button class="btn bad" data-revoke="사장님">사장님 폰 전부 로그아웃 (분실·교체 때)</button></div>
   </div></div>
   <div class="card"><div class="body"><div class="title">최근 기록</div><div class="log">${audits.slice(0, 15).map((a) => `<div>${kst(a.at)} · ${esc(a.actor_label || "")} · ${esc(actKo(a.action))}${a.detail ? " · " + esc(a.detail) : ""}</div>`).join("")}</div>
   <div class="btns"><button class="btn ghost" id="out">이 폰 로그아웃</button></div></div></div>`;
@@ -242,9 +247,14 @@ function bindAdmin() {
     const { data, error } = await sb.functions.invoke("admin", { body: { action: "device_link", name: b.dataset.link } });
     const lk = document.getElementById("lk");
     if (error || !data?.link) { lk.innerHTML = `<p class="banner bad">실패: ${esc(errMsg(error || data?.error))}</p>`; return; }
-    lk.innerHTML = `<p><b>${esc(data.name)}</b> 폰에서 이 링크를 열어주세요.</p><div class="linkbox">${esc(data.link)}</div><div class="btns"><button class="btn" id="share">카톡 등으로 보내기</button><button class="btn ghost" id="copy">링크 복사</button></div>`;
+    const qr = await QRCode.toDataURL(data.link, { width: 320, margin: 1 });
+    lk.innerHTML = `<p><b>${esc(data.name)}</b> 폰 카메라로 이 QR을 찍어서 열어주세요. (1시간 안에 한 번만)</p><img src="${qr}" style="width:100%;max-width:320px;display:block;margin:10px auto" alt="QR"><p class="small">카톡·문자로 보내지 마세요. 미리보기가 링크를 먼저 써버릴 수 있어요.</p><div class="btns"><button class="btn ghost" id="copy">링크 복사(직접 열 때만)</button></div>`;
     document.getElementById("copy").onclick = async () => { await navigator.clipboard.writeText(data.link); alert("복사했어요."); };
-    document.getElementById("share").onclick = async () => { if (navigator.share) await navigator.share({ title: "도우 인스타 승인함 연결", text: "이 링크를 눌러주세요 (1시간 안에)", url: data.link }).catch(() => {}); else { await navigator.clipboard.writeText(data.link); alert("복사했어요. 카톡에 붙여넣어 보내주세요."); } };
+  }));
+  document.querySelectorAll("[data-revoke]").forEach((b) => (b.onclick = async () => {
+    if (!confirm(b.dataset.revoke + " 계정의 모든 폰을 로그아웃할까요? 다시 쓰려면 QR 연결을 새로 해야 해요.")) return;
+    const { data, error } = await sb.functions.invoke("admin", { body: { action: "revoke_sessions", name: b.dataset.revoke } });
+    alert(error ? "실패: " + errMsg(error) : `로그아웃 완료 (${data.count}개 기기, 최대 1시간 안에 완전히 끊김)`);
   }));
   document.getElementById("out").onclick = async () => { if (confirm("이 폰에서 로그아웃할까요?")) { await sb.auth.signOut(); location.reload(); } };
 }
