@@ -247,6 +247,10 @@ async function act(kind,id) {
   } else if(kind==="now"&&p.state==="approval") {
    try {
     const {data,error}=await sb.functions.invoke("publish-due",{body:{action:"now",id,version:p.version}});
+    if(error?.context && [400,401,403,409].includes(error.context.status)) {
+     let rejected=null;try{const body=await error.context.json();if(typeof body.error==="string")rejected=body.error;}catch{}
+     if(rejected){publishNotices.delete(id);alert(rejected);return;}
+    }
     if(!error&&data?.ok===true&&data.result==="processing") {
      publishNotices.set(id,{kind:"processing",text:PROCESSING_TEXT});
      alert(PROCESSING_TEXT);
