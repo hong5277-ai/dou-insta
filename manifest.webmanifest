@@ -1,21 +1,29 @@
 {
- "name": "도우 인스타 승인함",
- "short_name": "도우 인스타",
+ "name": "DOU SNS",
+ "short_name": "DOU SNS",
  "start_url": "./",
  "scope": "./",
  "display": "standalone",
- "background_color": "#f4f1ec",
- "theme_color": "#1f3a5f",
+ "background_color": "#EB5518",
+ "theme_color": "#ffffff",
  "icons": [
   {
-   "src": "icon-192.png",
+   "src": "icon-192.png?v=2",
    "sizes": "192x192",
-   "type": "image/png"
+   "type": "image/png",
+   "purpose": "any"
   },
   {
-   "src": "icon-512.png",
+   "src": "icon-512.png?v=2",
    "sizes": "512x512",
-   "type": "image/png"
+   "type": "image/png",
+   "purpose": "any"
+  },
+  {
+   "src": "icon-maskable-512.png?v=2",
+   "sizes": "512x512",
+   "type": "image/png",
+   "purpose": "maskable"
   }
  ]
 }
