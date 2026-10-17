@@ -52,37 +52,30 @@ async function load() {
 }
 
 function renderLogin(msg) {
-  const PEOPLE = [{ name: "사장님", email: "sajangnim@doufabric.com" }, { name: "제문이형", email: "hong5277@naver.com" }];
-  let who = localStorage.getItem("dou_last_who") || "";
-  const draw = () => {
-    $app.innerHTML = `<div class="center">
-      <h2>도우 인스타 승인함</h2>
-      ${msg ? `<p class="banner bad">${esc(msg)}</p>` : ""}
-      <p><b>누구세요?</b></p>
-      <div class="btns">${PEOPLE.map((p) => `<button class="btn ${who === p.name ? "" : "ghost"}" data-who="${p.name}">${p.name}</button>`).join("")}</div>
-      ${who ? `<label style="text-align:left">비밀번호</label>
-      <input type="password" id="pw" autocomplete="current-password" autocapitalize="off" autocorrect="off" spellcheck="false" style="font-size:24px;text-align:center">
-      <div class="btns"><button class="btn ok" id="go">들어가기</button></div>
-      <p class="small">한 번 들어가면 이 폰에서는 계속 로그인돼 있어요.</p>` : ""}
-    </div>`;
-    $app.querySelectorAll("[data-who]").forEach((b) => (b.onclick = () => { who = b.dataset.who; msg = ""; draw(); setTimeout(() => document.getElementById("pw")?.focus(), 50); }));
-    const go = document.getElementById("go");
-    if (go) {
-      const submit = async () => {
-        const pw = document.getElementById("pw").value;
-        if (!pw) return;
-        go.disabled = true;
-        const email = PEOPLE.find((p) => p.name === who).email;
-        const { error } = await sb.auth.signInWithPassword({ email, password: pw });
-        if (error) { msg = "비밀번호가 맞지 않아요. 다시 눌러주세요."; go.disabled = false; return draw(); }
-        localStorage.setItem("dou_last_who", who);
-        location.reload();
-      };
-      go.onclick = submit;
-      document.getElementById("pw").onkeydown = (e) => { if (e.key === "Enter") submit(); };
-    }
+  const ADMIN = location.hash === "#admin";
+  const email = ADMIN ? "hong5277@naver.com" : "sajangnim@doufabric.com";
+  $app.innerHTML = `<div class="center">
+    <h2>도우 인스타 승인함</h2>
+    ${msg ? `<p class="banner bad">${esc(msg)}</p>` : ""}
+    <p><b>비밀번호를 넣어주세요</b>${ADMIN ? " (관리자)" : ""}</p>
+    <input type="password" id="pw" autocomplete="current-password" autocapitalize="off" autocorrect="off" spellcheck="false" style="font-size:26px;text-align:center">
+    <div class="btns"><button class="btn ok" id="go">들어가기</button></div>
+    <p class="small">한 번 들어가면 이 폰에서는 계속 로그인돼 있어요.</p>
+    <p style="margin-top:48px"><a class="small" href="${ADMIN ? "#" : "#admin"}" id="sw">${ADMIN ? "사장님 로그인으로" : "관리자"}</a></p>
+  </div>`;
+  document.getElementById("sw").onclick = () => setTimeout(() => renderLogin(), 0);
+  const go = document.getElementById("go");
+  const submit = async () => {
+    const pw = document.getElementById("pw").value;
+    if (!pw) return;
+    go.disabled = true;
+    const { error } = await sb.auth.signInWithPassword({ email, password: pw });
+    if (error) return renderLogin("비밀번호가 맞지 않아요. 다시 넣어주세요.");
+    location.hash = ""; location.reload();
   };
-  draw();
+  go.onclick = submit;
+  document.getElementById("pw").onkeydown = (e) => { if (e.key === "Enter") submit(); };
+  setTimeout(() => document.getElementById("pw").focus(), 50);
 }
 
 function banners() {
