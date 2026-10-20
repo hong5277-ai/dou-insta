@@ -4,6 +4,23 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { SB_URL, SB_ANON } from "./config.js?v=3";
 import QRCode from "https://esm.sh/qrcode@1.5.4";
 
+const VAPID_PUBLIC = "BG19YRQV8ivxBGQY4NVJCAFa9FfUr6DEpXS9s10733fM0ton5MVjsg6ihXPJpGqwoTyrDPXTMq1hkyzD0OHuCdM";
+const pushSupported = () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+let pushOn = false;
+const b64uToU8 = s => { const p = "=".repeat((4 - s.length % 4) % 4); const b = atob((s + p).replace(/-/g, "+").replace(/_/g, "/")); return Uint8Array.from(b, c => c.charCodeAt(0)); };
+async function refreshPushState() { try { if (!pushSupported() || Notification.permission !== "granted") { pushOn = false; return; } const reg = await navigator.serviceWorker.getRegistration(); pushOn = !!(reg && await reg.pushManager.getSubscription()); } catch { pushOn = false; } }
+async function enablePush() {
+ if (!pushSupported()) throw new Error("이 브라우저는 알림을 지원하지 않아요. 크롬으로 열어주세요.");
+ const perm = await Notification.requestPermission();
+ if (perm !== "granted") throw new Error("알림이 차단돼 있어요. 크롬 설정 > 사이트 설정 > 알림에서 이 사이트를 허용해 주세요.");
+ const reg = await navigator.serviceWorker.register("sw.js?v=1"); await navigator.serviceWorker.ready;
+ let sub = await reg.pushManager.getSubscription();
+ if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64uToU8(VAPID_PUBLIC) });
+ const j = sub.toJSON();
+ const { error } = await sb.rpc("save_push_subscription", { p_endpoint: j.endpoint, p_p256dh: j.keys.p256dh, p_auth: j.keys.auth, p_ua: navigator.userAgent });
+ if (error) throw error; pushOn = true;
+}
+async function testPush() { const { data, error } = await sb.functions.invoke("push-send", { body: { action: "test" } }); if (error || !data?.ok) throw new Error(data?.error || errMsg(error) || "테스트 알림을 보내지 못했어요."); return data; }
 const sb = createClient(SB_URL, SB_ANON, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
 const $app = document.getElementById("app");
 const TABS = [
@@ -69,6 +86,10 @@ async function boot() {
   if(pe || !prof) { await sb.auth.signOut(); return renderLogin("이 계정은 등록되지 않았어요."); }
   me={...prof,id:session.user.id,email:session.user.email||""};
   if(me.is_admin) tab="adminApproval";
+ const qTab=new URLSearchParams(location.search).get("tab"); if(qTab&&visibleTabs().some(t=>t.key===qTab)) tab=qTab;
+ if(location.search) history.replaceState(null,"",location.pathname);
+ if(pushSupported()) navigator.serviceWorker.register("sw.js?v=1").catch(()=>{});
+ await refreshPushState();
   if(location.hash.includes("access_token")) history.replaceState(null,"",location.pathname);
   history.replaceState({tab},"");
   await load();
@@ -222,12 +243,13 @@ function render() {
  const cur=visibleTabs().find(t=>t.key===tab);
  const list=cur ? posts.filter(p=>inTab(p,cur)) : [];
  if(tab==="published") list.reverse();
- $app.innerHTML='<header class="appbar"><button class="brand" data-home aria-label="홈으로"><img class="logo" src="logo-dou.png?v=1" alt="DOU FABRIC" width="159" height="22"><span class="brand-sub">SNS 승인센터</span></button><span class="sp"></span><button class="role'+(me.is_admin?' admin':'')+'" data-account aria-haspopup="true" aria-label="계정 메뉴">'+esc(me.is_admin?"Admin":me.role==="owner"?"Director":me.role)+'<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button><div class="acct" data-acct hidden><button class="acct-out" data-logout>로그아웃</button></div><button id="refresh" class="iconbtn" aria-label="새로고침" title="새로고침">'+ICON.refresh+'</button>'+(me.is_admin?'<button data-tab="admin" class="iconbtn'+(tab==="admin"?' on':'')+'" aria-label="관리 설정" title="관리 설정">'+ICON.admin+'</button>':'')+'</header><main><div class="statusline"><span class="dot"></span><span id="refresh-note">'+(drafts.size?'저장하지 않은 내용이 있어요.':pending?pendingText():'한국시간 기준 · 예약은 서버에서 결정')+'</span></div><div id="pending-refresh" class="banner warn" role="status"'+(pending?'':' hidden')+'>'+ (pending?'새로고침 대기 · '+esc(pendingText()):'')+'</div>'+banners()+(tab==="admin"?'<div class="pagehead"><h2>관리 설정</h2></div>'+adminView():tab==="adminApproval"?'<div class="pagehead"><h2>관리자 승인</h2><span class="cnt">'+list.length+'건</span></div><p class="subnote">소개글·해시태그를 바로 고친 뒤 관리자 승인을 누르세요. 사장님 승인 대기로 이동하며 인스타에는 게시되지 않아요.</p>'+(list.length?list.map(card).join(''):'<div class="empty">관리자 승인을 기다리는 글이 없어요.</div>'):'<div class="pagehead"><h2>'+esc(cur?cur.label:"")+'</h2><span class="cnt">'+(tab==="published"?'최근 30일 · ':'')+list.length+'건</span></div>'+(list.length?list.map(card).join(''):'<div class="empty">'+ICON.inbox+(tab==="approval"?'승인할 글이 없어요.':'글이 없어요.')+'</div>'))+'</main><nav class="tabbar" aria-label="메뉴"><div class="tabbar-in">'+visibleTabs().map(t=>{const n=posts.filter(p=>inTab(p,t)).length;return '<button data-tab="'+t.key+'" class="'+(tab===t.key?'on':'')+'"'+(tab===t.key?' aria-current="page"':'')+'>'+(ICON[t.key]||"")+'<span class="lb">'+t.label+'</span><span class="n'+(n?(["approval","adminApproval"].includes(t.key)?' hot':''):' zero')+'">'+n+'</span></button>';}).join('')+'</div></nav>';
+ $app.innerHTML='<header class="appbar"><button class="brand" data-home aria-label="홈으로"><img class="logo" src="logo-dou.png?v=1" alt="DOU FABRIC" width="159" height="22"><span class="brand-sub">SNS 승인센터</span></button><span class="sp"></span><button class="role'+(me.is_admin?' admin':'')+'" data-account aria-haspopup="true" aria-label="계정 메뉴">'+esc(me.is_admin?"Admin":me.role==="owner"?"Director":me.role)+'<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button><div class="acct" data-acct hidden>'+(pushSupported()?'<button class="acct-push" data-push>'+(pushOn?'알림 켜짐 · 테스트 알림 보내기':'이 폰 승인 알림 켜기')+'</button>':'')+'<button class="acct-out" data-logout>로그아웃</button></div><button id="refresh" class="iconbtn" aria-label="새로고침" title="새로고침">'+ICON.refresh+'</button>'+(me.is_admin?'<button data-tab="admin" class="iconbtn'+(tab==="admin"?' on':'')+'" aria-label="관리 설정" title="관리 설정">'+ICON.admin+'</button>':'')+'</header><main><div class="statusline"><span class="dot"></span><span id="refresh-note">'+(drafts.size?'저장하지 않은 내용이 있어요.':pending?pendingText():'한국시간 기준 · 예약은 서버에서 결정')+'</span></div><div id="pending-refresh" class="banner warn" role="status"'+(pending?'':' hidden')+'>'+ (pending?'새로고침 대기 · '+esc(pendingText()):'')+'</div>'+banners()+(tab==="admin"?'<div class="pagehead"><h2>관리 설정</h2></div>'+adminView():tab==="adminApproval"?'<div class="pagehead"><h2>관리자 승인</h2><span class="cnt">'+list.length+'건</span></div><p class="subnote">소개글·해시태그를 바로 고친 뒤 관리자 승인을 누르세요. 사장님 승인 대기로 이동하며 인스타에는 게시되지 않아요.</p>'+(list.length?list.map(card).join(''):'<div class="empty">관리자 승인을 기다리는 글이 없어요.</div>'):'<div class="pagehead"><h2>'+esc(cur?cur.label:"")+'</h2><span class="cnt">'+(tab==="published"?'최근 30일 · ':'')+list.length+'건</span></div>'+(list.length?list.map(card).join(''):'<div class="empty">'+ICON.inbox+(tab==="approval"?'승인할 글이 없어요.':'글이 없어요.')+'</div>'))+'</main><nav class="tabbar" aria-label="메뉴"><div class="tabbar-in">'+visibleTabs().map(t=>{const n=posts.filter(p=>inTab(p,t)).length;return '<button data-tab="'+t.key+'" class="'+(tab===t.key?'on':'')+'"'+(tab===t.key?' aria-current="page"':'')+'>'+(ICON[t.key]||"")+'<span class="lb">'+t.label+'</span><span class="n'+(n?(["approval","adminApproval"].includes(t.key)?' hot':''):' zero')+'">'+n+'</span></button>';}).join('')+'</div></nav>';
  $app.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>setTab(b.dataset.tab));
  $app.querySelectorAll('[data-home]').forEach(b=>b.onclick=()=>setTab(homeTab()));
  const acctBtn=$app.querySelectorAll('[data-account]')[0], acctBox=$app.querySelectorAll('[data-acct]')[0];
  if(acctBtn&&acctBox){acctBtn.onclick=e=>{e.stopPropagation();acctBox.hidden=!acctBox.hidden;};document.onclick=e=>{if(!acctBox.hidden&&!acctBox.contains(e.target))acctBox.hidden=true;};
   acctBox.querySelector('[data-logout]').onclick=async()=>{if(busy)return;if(drafts.size&&!confirm("저장하지 않은 수정이 있어요. 그래도 로그아웃할까요?"))return;await sb.auth.signOut();location.hash="";location.reload();};}
+ $app.querySelectorAll('[data-push]').forEach(b=>b.onclick=async e=>{e.stopPropagation();if(busy)return;b.disabled=true;try{if(!pushOn){await enablePush();}const r=await testPush();toast('테스트 알림을 보냈어요 ('+r.sent+'대)');render();}catch(err){alert(errMsg(err));}finally{b.disabled=false;}});
  $app.querySelectorAll('[data-more]').forEach(b=>b.onclick=()=>{const c=$app.querySelector('[data-cap="'+b.dataset.more+'"]');if(!c)return;const open=c.classList.toggle('clamp');b.textContent=open?'본문 전체 보기':'접기';});
  document.getElementById("refresh").onclick=async()=>{if(busy)return;if(isPlaying()){markPending();return;}if(drafts.size&&!confirm("저장하지 않은 수정을 버리고 새로고침할까요?"))return;drafts.clear();await load();};
  $app.querySelectorAll('[data-act]').forEach(b=>b.onclick=()=>act(b.dataset.act,Number(b.dataset.id)));
@@ -363,7 +385,7 @@ async function act(kind,id) {
  if(kind==="cancel-schedule"&&!confirm("이 글의 예약을 취소할까요?"))return;
  busy=true; $app.querySelectorAll('button,input,textarea').forEach(b=>b.disabled=true);
  try {
-  if(kind==="save-review" || kind==="submit-review") {const r=await saveReview(p,kind==="submit-review");if(r.state!==(kind==="submit-review"?"approval":"review"))throw new Error("예상한 상태가 아니에요. 현재 목록을 확인해 주세요.");if(kind==="submit-review") tab="approval";alert(kind==="submit-review"?"관리자 승인 완료. 사장님 승인 대기로 이동했어요. 아직 인스타에는 게시되지 않았어요.":"내용을 저장했어요.");}
+  if(kind==="save-review" || kind==="submit-review") {const r=await saveReview(p,kind==="submit-review");if(r.state!==(kind==="submit-review"?"approval":"review"))throw new Error("예상한 상태가 아니에요. 현재 목록을 확인해 주세요.");if(kind==="submit-review") {tab="approval";sb.functions.invoke("push-send",{body:{action:"drain"}}).catch(()=>{});}alert(kind==="submit-review"?"관리자 승인 완료. 사장님 승인 대기로 이동했어요. 아직 인스타에는 게시되지 않았어요.":"내용을 저장했어요.");}
   else if(kind==="admin-revise" || kind==="revise") {
    if(kind==="admin-revise"&&drafts.has(id)) p=await saveReview(p,false);
    const r=await rpcRow("request_revision",{p_id:id,p_version:p.version,p_note:note});
