@@ -1,0 +1,5 @@
+Local video conversion uses ffmpeg.wasm single-thread core 0.12.10 fetched from jsDelivr. No videos are sent to the CDN.
+Engine license: GPL-2.0-or-later; bundled FFmpeg and codecs have their respective licenses.
+Source/build scripts and license information: https://github.com/ffmpegwasm/ffmpeg.wasm and https://ffmpegwasm.netlify.app/docs/overview/
+Core package: https://www.npmjs.com/package/@ffmpeg/core/v/0.12.10
+App loads engine at runtime; engine binaries are not included in this repository.
