@@ -72,7 +72,7 @@ function toast(text){let t=document.getElementById("toast");if(!t){t=document.cr
 let navDepth=0;
 function setTab(next, push=true) {
  if(busy || next===tab) { scrollTo({top:0,behavior:"smooth"}); return; }
- if(next==="directTest") { if(me?.is_admin) location.assign("admin-direct-test.html?v=24"); return; }
+ if(next==="directTest") { if(me?.is_admin) location.assign("admin-direct-test.html?v=24.2"); return; }
  if(push && next===homeTab() && navDepth>0) { history.go(-navDepth); return; }
  $app.querySelectorAll("video[data-reel]").forEach(v=>v.pause());
  tab=next;
