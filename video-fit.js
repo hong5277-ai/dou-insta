@@ -5,7 +5,7 @@ export async function prepareVideo(file,{signal,onStatus=()=>{},onProgress=()=>{
  onStatus('영상 형식을 확인하고 있어요. 원본은 보존합니다.');
  let meta;try{meta=inspectMp4(new Uint8Array(await file.arrayBuffer()));}catch{}
  if(signal?.aborted)throw new DOMException('변환 취소','AbortError');
- if(meta&&meta.width===1080&&meta.height===1920&&Math.abs(meta.fps-30)<.05)return {file:new File([file],'reel.mp4',{type:'video/mp4'}),meta,converted:false};
+ if(meta&&file.size<=52428800&&meta.width===1080&&meta.height===1920&&Math.abs(meta.fps-30)<.05)return {file:new File([file],'reel.mp4',{type:'video/mp4'}),meta,converted:false};
  return await new Promise((resolve,reject)=>{
   const worker=new Worker(new URL('./video-fit-worker.js?v=28',import.meta.url));let ended=false;
   const finish=(error,result)=>{if(ended)return;ended=true;clearTimeout(timer);worker.terminate();signal?.removeEventListener('abort',cancel);error?reject(error):resolve(result);};

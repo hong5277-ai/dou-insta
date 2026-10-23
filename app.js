@@ -73,7 +73,7 @@ function toast(text){let t=document.getElementById("toast");if(!t){t=document.cr
 let navDepth=0;
 function setTab(next, push=true) {
  if(busy || next===tab) { scrollTo({top:0,behavior:"smooth"}); return; }
- if(next==="directTest") { if(owner()) location.assign("admin-direct-test.html?v=28"+(me.is_admin?"":"&view=director")); return; }
+ if(next==="directTest") { if(owner()) location.assign("admin-direct-test.html?v=28.1"+(me.is_admin?"":"&view=director")); return; }
  if(push && next===homeTab() && navDepth>0) { history.go(-navDepth); return; }
  $app.querySelectorAll("video[data-reel]").forEach(v=>v.pause());
  tab=next;
@@ -137,7 +137,7 @@ async function load() {
    me.is_admin ? sb.functions.invoke("admin",{body:{action:"status"}}) : Promise.resolve({data:null}),
    me.is_admin ? sb.rpc("list_admin_trash_v1") : Promise.resolve({data:[]})
   ]);
-  if(p.error) throw p.error; if(a.error) throw a.error;
+  if(p.error) throw p.error; if(a.error) throw a.error; if(tr.error) throw tr.error;
   if(busy || approvalEditor || drafts.size || isPlaying()) { markPending(); return; }
   posts=p.data || []; audits=a.data || []; trashPosts=tr.error?[]:(tr.data||[]); status=st.error || st.data?.error ? null : st.data;
   loadError=st.error || st.data?.error ? "관리 설정 상태를 불러오지 못했어요. 새로고침해 주세요." : "";
