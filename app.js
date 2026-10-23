@@ -31,7 +31,7 @@ const TABS = [
 ];
 const ADMIN_APPROVAL_TAB = {key:"adminApproval",label:"관리자 승인",states:["review"]};
 const DIRECT_TEST_TAB = {key:"directTest",label:"직접 올리기",states:[]};
-const visibleTabs = () => me?.is_admin ? [ADMIN_APPROVAL_TAB,TABS[0],TABS[1],DIRECT_TEST_TAB,TABS[2],TABS[3]] : TABS;
+const visibleTabs = () => me?.is_admin ? [ADMIN_APPROVAL_TAB,TABS[0],TABS[1],DIRECT_TEST_TAB,TABS[2],TABS[3]] : me?.role==="owner" ? [TABS[0],TABS[1],DIRECT_TEST_TAB,TABS[2],TABS[3]] : TABS;
 const STATE_KO = {review:"관리자 승인 대기",approval:"승인 대기",revision:"수정 중",scheduled:"예약됨",publishing:"올리는 중",published:"게시 완료",failed:"올리기 실패",unknown:"확인 필요",cancelled:"취소됨"};
 let me=null, status=null, posts=[], audits=[], tab="approval", busy=false, loading=false, pending=false, loadError="";
 const drafts = new Map();
@@ -72,7 +72,7 @@ function toast(text){let t=document.getElementById("toast");if(!t){t=document.cr
 let navDepth=0;
 function setTab(next, push=true) {
  if(busy || next===tab) { scrollTo({top:0,behavior:"smooth"}); return; }
- if(next==="directTest") { if(me?.is_admin) location.assign("admin-direct-test.html?v=24.2"); return; }
+ if(next==="directTest") { if(owner()) location.assign("admin-direct-test.html?v=24.3"+(me.is_admin?"":"&view=director")); return; }
  if(push && next===homeTab() && navDepth>0) { history.go(-navDepth); return; }
  $app.querySelectorAll("video[data-reel]").forEach(v=>v.pause());
  tab=next;
