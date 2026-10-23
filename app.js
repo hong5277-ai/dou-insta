@@ -30,7 +30,8 @@ const TABS = [
  { key: "published", label: "게시 완료", states: ["published"] }
 ];
 const ADMIN_APPROVAL_TAB = {key:"adminApproval",label:"관리자 승인",states:["review"]};
-const visibleTabs = () => me?.is_admin ? [ADMIN_APPROVAL_TAB,...TABS] : TABS;
+const DIRECT_TEST_TAB = {key:"directTest",label:"직접 올리기",states:[]};
+const visibleTabs = () => me?.is_admin ? [ADMIN_APPROVAL_TAB,TABS[0],TABS[1],DIRECT_TEST_TAB,TABS[2],TABS[3]] : TABS;
 const STATE_KO = {review:"관리자 승인 대기",approval:"승인 대기",revision:"수정 중",scheduled:"예약됨",publishing:"올리는 중",published:"게시 완료",failed:"올리기 실패",unknown:"확인 필요",cancelled:"취소됨"};
 let me=null, status=null, posts=[], audits=[], tab="approval", busy=false, loading=false, pending=false, loadError="";
 const drafts = new Map();
@@ -47,6 +48,7 @@ const owner = () => me?.role === "owner" || !!me?.is_admin;
 const rowOf = data => Array.isArray(data) ? data[0] : data;
 const svg = p => '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+p+'</svg>';
 const ICON = {
+ directTest: svg('<rect x="3" y="3" width="18" height="18" rx="5"/><path d="M12 7v10M7 12h10"/>'),
  adminApproval: svg('<path d="M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6l7-3z"/><path d="M9 12l2 2 4-4"/>'),
  approval: svg('<rect x="4" y="4" width="16" height="16" rx="4"/><path d="M8.5 12.5l2.5 2.5 4.5-5"/>'),
  revision: svg('<path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/>'),
@@ -70,6 +72,7 @@ function toast(text){let t=document.getElementById("toast");if(!t){t=document.cr
 let navDepth=0;
 function setTab(next, push=true) {
  if(busy || next===tab) { scrollTo({top:0,behavior:"smooth"}); return; }
+ if(next==="directTest") { if(me?.is_admin) location.assign("admin-direct-test.html?v=24"); return; }
  if(push && next===homeTab() && navDepth>0) { history.go(-navDepth); return; }
  $app.querySelectorAll("video[data-reel]").forEach(v=>v.pause());
  tab=next;
