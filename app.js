@@ -98,6 +98,7 @@ async function boot() {
   if(location.hash.includes("access_token")) history.replaceState(null,"",location.pathname);
   history.replaceState({tab},"");
   await load();
+  if(me?.is_admin)mediaCleanupNotice(await cleanupDeletedMedia());
   sb.channel("posts").on("postgres_changes",{event:"*",schema:"public",table:"posts"},()=>load()).subscribe();
   setInterval(()=>load(),60000);
  } catch(e) { renderLogin("불러오지 못했어요: "+errMsg(e)); }
@@ -260,7 +261,7 @@ function render() {
  $app.querySelectorAll('[data-push]').forEach(b=>b.onclick=async e=>{e.stopPropagation();if(busy)return;b.disabled=true;try{await enablePush();const r=await testPush();toast('알람이 켜졌어요. 테스트 알림을 보냈어요 ('+r.sent+'대)');render();}catch(err){alert(errMsg(err));}finally{b.disabled=false;}});
  $app.querySelectorAll('[data-remind]').forEach(b=>b.onclick=async e=>{e.stopPropagation();if(busy)return;if(!confirm('사장님 폰으로 승인 요청 알람을 다시 보낼까요?'))return;b.disabled=true;try{const {data,error}=await sb.functions.invoke('push-send',{body:{action:'remind'}});if(error||!data?.ok)throw new Error(data?.error||errMsg(error)||'보내지 못했어요.');toast('사장님께 다시 알렸어요 (승인 대기 '+data.waiting+'건)');}catch(err){alert(errMsg(err));}finally{b.disabled=false;}});
  $app.querySelectorAll('[data-more]').forEach(b=>b.onclick=()=>{const c=$app.querySelector('[data-cap="'+b.dataset.more+'"]');if(!c)return;const open=c.classList.toggle('clamp');b.textContent=open?'본문 전체 보기':'접기';});
- document.getElementById("refresh").onclick=async()=>{if(busy)return;if(isPlaying()){markPending();return;}if(drafts.size&&!confirm("저장하지 않은 수정을 버리고 새로고침할까요?"))return;drafts.clear();await load();};
+ document.getElementById("refresh").onclick=async()=>{if(busy)return;if(isPlaying()){markPending();return;}if(drafts.size&&!confirm("저장하지 않은 수정을 버리고 새로고침할까요?"))return;drafts.clear();await load();if(me?.is_admin)mediaCleanupNotice(await cleanupDeletedMedia());};
  $app.querySelectorAll('[data-act]').forEach(b=>b.onclick=()=>act(b.dataset.act,Number(b.dataset.id)));
  $app.querySelectorAll('[data-editor]').forEach(el=>el.querySelectorAll('[data-field]').forEach(input=>input.oninput=()=>{
   const id=Number(el.dataset.editor), p=posts.find(x=>x.id===id);
@@ -289,16 +290,35 @@ function render() {
 }
 
 
+let mediaCleanupPromise=null;
+async function cleanupDeletedMedia(){
+ if(!me?.is_admin)return {ok:true,deleted:0};
+ if(mediaCleanupPromise)return mediaCleanupPromise;
+ mediaCleanupPromise=(async()=>{
+ let deleted=0,errors=0;
+ try{
+ const {data,error}=await sb.rpc('list_purged_media_v1');if(error||!Array.isArray(data))return {ok:false,deleted,errors:1};
+ for(const file of data){
+  if(!['media','reels','admin-originals'].includes(file.bucket)||typeof file.name!=='string'){errors++;continue;}
+  try{const removed=await sb.storage.from(file.bucket).remove([file.name]);if(removed.error){errors++;continue;}const acknowledged=await sb.rpc('ack_purged_media_v1',{b:file.bucket,n:file.name});if(acknowledged.error||acknowledged.data?.ok!==true){errors++;continue;}deleted++;}catch{errors++;}
+ }
+ const remaining=await sb.rpc('list_purged_media_v1');if(remaining.error||!Array.isArray(remaining.data)||remaining.data.length)errors++;
+ return {ok:errors===0,deleted,errors};
+ }catch{return {ok:false,deleted,errors:errors+1};}
+ })().finally(()=>{mediaCleanupPromise=null;});
+ return mediaCleanupPromise;
+}
+function mediaCleanupNotice(result){if(!result.ok)toast('글은 삭제됐지만 서버 파일 정리가 끝나지 않았어요. 새로고침하면 이어서 정리합니다.');}
 function canPermanentDelete(p){return !!me?.is_admin&&p?.state==='cancelled'&&!['scheduled_at','published_at','ig_container_id','ig_media_id','ig_permalink','publish_claimed_at','publish_phase'].some(k=>p[k]!==null&&p[k]!==undefined);}
 function openPermanentDeleteDialog(id){
  if(busy||trashDialog||tab!=='trash')return;const p=trashPosts.find(x=>x.id===id);if(!canPermanentDelete(p))return;
  $app.querySelectorAll('video[data-reel]').forEach(v=>v.pause());const dialog=document.createElement('dialog');trashDialog=dialog;dialog.className='trash-dialog';dialog.setAttribute('aria-labelledby','purge-title');
- dialog.innerHTML='<h2 id="purge-title">완전히 삭제할까요?</h2><p><b>'+esc(p.title||'제목 없음')+'</b></p><p><strong>삭제하면 복구할 수 없습니다.</strong></p><p>사진·영상 파일과 인스타 게시물은 그대로 남습니다. 최소한의 삭제 이력은 보관합니다.</p><p class="err" data-purge-error role="status"></p><div class="btns"><button type="button" class="btn ghost" data-purge-cancel>취소</button><button type="button" class="btn warn" data-purge-confirm>완전삭제</button></div>';
+ dialog.innerHTML='<h2 id="purge-title">완전히 삭제할까요?</h2><p><b>'+esc(p.title||'제목 없음')+'</b></p><p><strong>삭제하면 복구할 수 없습니다.</strong></p><p>이 글의 서버 사진·영상도 삭제합니다. 다른 글이 함께 쓰는 파일은 보호하며, 휴대폰 원본과 인스타 게시물은 그대로 둡니다.</p><p class="err" data-purge-error role="status"></p><div class="btns"><button type="button" class="btn ghost" data-purge-cancel>취소</button><button type="button" class="btn warn" data-purge-confirm>완전삭제</button></div>';
  document.body.appendChild(dialog);dialog.showModal();const confirm=dialog.querySelector('[data-purge-confirm]');
  const close=()=>{if(busy)return;dialog.close();dialog.remove();trashDialog=null;};dialog.querySelector('[data-purge-cancel]').onclick=close;dialog.oncancel=e=>{e.preventDefault();close();};dialog.querySelector('[data-purge-cancel]').focus();
  confirm.onclick=async()=>{
   if(busy||confirm.hidden||trashDialog!==dialog)return;busy=true;dialog.querySelectorAll('button').forEach(b=>b.disabled=true);
-  try{const {data,error}=await sb.rpc('permanent_delete_post_v1',{p_id:p.id,p_version:p.version,p_confirmation:'완전삭제'});if(error)throw error;const r=rowOf(data);if(r?.ok!==true||r?.deleted!==true||String(r.id)!==String(p.id))throw Error('삭제 결과를 확인하지 못했습니다.');drafts.delete(id);posts=posts.filter(x=>x.id!==id);trashPosts=trashPosts.filter(x=>x.id!==id);busy=false;close();render();await load();toast('완전 삭제했어요. 이 글은 복구할 수 없습니다. 서버 파일은 보존했습니다.');}
+  try{const {data,error}=await sb.rpc('permanent_delete_post_v1',{p_id:p.id,p_version:p.version,p_confirmation:'완전삭제'});if(error)throw error;const r=rowOf(data);if(r?.ok!==true||r?.deleted!==true||String(r.id)!==String(p.id))throw Error('삭제 결과를 확인하지 못했습니다.');drafts.delete(id);posts=posts.filter(x=>x.id!==id);trashPosts=trashPosts.filter(x=>x.id!==id);const cleaned=await cleanupDeletedMedia();busy=false;close();render();await load();if(cleaned.ok)toast('글과 전용 서버 파일을 완전삭제했어요.'+(r.shared_files?' 다른 글이 사용하는 파일은 보호했습니다.':''));else mediaCleanupNotice(cleaned);}
   catch(e){dialog.querySelector('[data-purge-error]').textContent='완료 여부를 확인해야 합니다: '+errMsg(e)+' 창을 닫고 새로고침해 휴지통을 확인해 주세요. 자동으로 다시 삭제하지 않습니다.';confirm.hidden=true;}
   finally{busy=false;dialog.querySelector('[data-purge-cancel]').disabled=false;}
  };
