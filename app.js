@@ -34,6 +34,7 @@ const DIRECT_TEST_TAB = {key:"directTest",label:"직접 올리기",states:[]};
 const visibleTabs = () => me?.is_admin ? [ADMIN_APPROVAL_TAB,TABS[0],TABS[1],DIRECT_TEST_TAB,TABS[2],TABS[3]] : me?.role==="owner" ? [TABS[0],TABS[1],DIRECT_TEST_TAB,TABS[2],TABS[3]] : TABS;
 const STATE_KO = {review:"관리자 승인 대기",approval:"승인 대기",revision:"수정 중",scheduled:"예약됨",publishing:"올리는 중",published:"게시 완료",failed:"올리기 실패",unknown:"확인 필요",cancelled:"휴지통"};
 let trashPosts=[],trashDialog=null;
+let publishedHiddenIds=new Set(),publishedVisibilityReady=false;
 let me=null, status=null, posts=[], audits=[], tab="approval", busy=false, loading=false, pending=false, loadError="";
 const drafts = new Map();
 const slideIndex = new Map();
@@ -132,16 +133,18 @@ async function load() {
  if(busy || approvalEditor || trashDialog || drafts.size || loading || isPlaying()) { markPending(); return; }
  loading=true;
  try {
-  const [p,a,st,tr]=await Promise.all([
+  const [p,a,st,tr,pv]=await Promise.all([
    sb.from("posts").select("*").neq("state","cancelled").order("scheduled_at",{ascending:true,nullsFirst:true}).order("id"),
    sb.from("audit").select("post_id,actor_label,action,detail,at").order("at",{ascending:false}).limit(200),
    me.is_admin ? sb.functions.invoke("admin",{body:{action:"status"}}) : Promise.resolve({data:null}),
-   me.is_admin ? sb.rpc("list_admin_trash_v1") : Promise.resolve({data:[]})
+   me.is_admin ? sb.rpc("list_admin_trash_v1") : Promise.resolve({data:[]}),
+   sb.from("published_list_visibility_v37").select("post_id,hidden_at").not("hidden_at","is",null)
   ]);
   if(p.error) throw p.error; if(a.error) throw a.error; if(tr.error) throw tr.error;
   if(busy || approvalEditor || drafts.size || isPlaying()) { markPending(); return; }
+  publishedVisibilityReady=!pv.error; if(!pv.error)publishedHiddenIds=new Set((pv.data||[]).map(r=>Number(r.post_id)));
   posts=p.data || []; audits=a.data || []; trashPosts=tr.error?[]:(tr.data||[]); status=st.error || st.data?.error ? null : st.data;
-  loadError=st.error || st.data?.error ? "관리 설정 상태를 불러오지 못했어요. 새로고침해 주세요." : "";
+  loadError=pv.error?"삭제한 게시완료 목록을 확인하지 못했어요. 새로고침 후 다시 확인해 주세요.":st.error || st.data?.error ? "관리 설정 상태를 불러오지 못했어요. 새로고침해 주세요." : "";
   syncPublishNotices(); pending=false; render();
  } catch(e) { loadError="목록을 불러오지 못했어요: "+errMsg(e); if(!approvalEditor&&!drafts.size&&!busy&&!isPlaying()) render(); else markPending(); }
  finally { loading=false; schedulePublishPoll(); }
@@ -223,7 +226,7 @@ function changes(p) {
  if(JSON.stringify(o.media||[])!==JSON.stringify(p.media||[])) rows.push('<div>사진 변경: '+(o.media||[]).length+'장 → '+(p.media||[]).length+'장</div>');
  return '<div class="note">'+(p.boss_revision_note&&p.boss_revision_note!==note?'<b>사장님 요청 원문</b><div>'+esc(p.boss_revision_note)+'</div>':'')+'<b>수정 요청</b><div>'+esc(note||"기록 없음")+'</div><details'+(me.is_admin && p.state==="review"?' open':'')+'><summary>변경 전·후 비교 (v'+esc(o.version??"이전")+' → v'+esc(p.version)+')</summary>'+ (rows.join("")||'<p>현재까지 바뀐 내용이 없어요.</p>')+'</details></div>';
 }
-const actKo=a=>({admin_permanent_delete:"완전 삭제",admin_trash:"휴지통 이동",admin_restore:"관리자 승인으로 복구",create:"초안 등록",edit:"수정",review:"1차 검토",review_submit:"승인대기로 이동",review_edit:"텍스트 수정",approval_edit:"승인대기 본문 수정",edit_approval_text:"승인대기 본문 수정",admin_revision:"AI 수정 요청",approve:"승인",request_revision:"수정 요청",cancel_schedule:"예약 취소",claim:"올리기 시작",published:"게시 완료",failed:"실패",unknown:"확인 필요",blocked:"게시 막음",device_link:"폰 연결",set_publish:"자동게시 설정",revoke_sessions:"기기 로그아웃",token_refreshed:"인스타 연결 연장",token_refresh_failed:"연결 연장 실패",push_remind:"알림 다시 보내기"}[a]||a);
+const actKo=a=>({published_list_hide:"게시완료 목록 삭제",published_list_restore:"게시완료 목록 복구",admin_permanent_delete:"완전 삭제",admin_trash:"휴지통 이동",admin_restore:"관리자 승인으로 복구",create:"초안 등록",edit:"수정",review:"1차 검토",review_submit:"승인대기로 이동",review_edit:"텍스트 수정",approval_edit:"승인대기 본문 수정",edit_approval_text:"승인대기 본문 수정",admin_revision:"AI 수정 요청",approve:"승인",request_revision:"수정 요청",cancel_schedule:"예약 취소",claim:"올리기 시작",published:"게시 완료",failed:"실패",unknown:"확인 필요",blocked:"게시 막음",device_link:"폰 연결",set_publish:"자동게시 설정",revoke_sessions:"기기 로그아웃",token_refreshed:"인스타 연결 연장",token_refresh_failed:"연결 연장 실패",push_remind:"알림 다시 보내기"}[a]||a);
 function card(p) {
  const editable=me.is_admin && p.state==="review" && tab==="adminApproval";
  const d=drafts.get(p.id)||p, media=p.media||[], at=Math.min(slideIndex.get(p.id)||0,Math.max(0,media.length-1));
@@ -234,12 +237,15 @@ function card(p) {
  if(owner()&&p.state==="approval"&&!publishLocked(p)) btns=button("edit-text","본문 수정","ghost")+button("revise","수정 요청","warn")+button("approve","승인","ok")+button("now","지금 게시","now");
  if(owner()&&p.state==="scheduled") btns=button("cancel-schedule","예약 취소","warn");
  if(me.is_admin&&['review','approval'].includes(p.state)&&!publishLocked(p)&&!p.scheduled_at&&!p.published_at&&!p.ig_container_id&&!p.ig_media_id&&!p.ig_permalink&&!p.publish_claimed_at&&!p.publish_phase)btns+=button('trash','삭제','warn');
+ if(me.is_admin&&p.state==='published'&&publishedVisibilityReady){if(tab==='published'&&!publishedHiddenIds.has(Number(p.id)))btns=button('hide-published','삭제','warn');else if(tab==='publishedDeleted'&&publishedHiddenIds.has(Number(p.id)))btns=button('restore-published','복구','ok');}
  if(me.is_admin&&tab==='trash'&&p.state==='cancelled')btns=button('restore','복구','ok')+(canPermanentDelete(p)?button('purge','완전 삭제','warn'):'');
  const log=me.is_admin && tab==="adminApproval" ? audits.filter(a=>a.post_id===p.id).slice(0,4).map(a=>'<div>'+kst(a.at)+' · '+esc(a.actor_label||"")+' · '+esc(actKo(a.action))+(a.detail?' · '+esc(typeof a.detail==="object"?JSON.stringify(a.detail):a.detail):'')+'</div>').join("") : "";
  const fields=editable ? '<div class="inline-editor" data-editor="'+p.id+'"><label>제목(관리용)<input data-field="title" value="'+esc(d.title)+'" maxlength="500"></label><label>본문<textarea data-field="caption">'+esc(d.caption)+'</textarea></label><label>해시태그<textarea class="tag-input" data-field="hashtags">'+esc(d.hashtags)+'</textarea></label><p class="small draft-note">'+(drafts.has(p.id)?'저장하지 않은 수정 내용이 있어요.':'제목·본문·해시태그만 수정할 수 있어요.')+'</p></div>' : '<div class="cap'+(String(p.caption||"").split("\n").length>5||String(p.caption||"").length>180?' clamp':'')+'" data-cap="'+p.id+'">'+esc(p.caption)+'</div>'+(String(p.caption||"").split("\n").length>5||String(p.caption||"").length>180?'<button class="more" data-more="'+p.id+'">본문 전체 보기</button>':'')+(p.hashtags?'<div class="tags">'+esc(p.hashtags)+'</div>':'');
  return '<article class="card" data-post="'+p.id+'"><div class="ig-head"><div class="avatar">DOU</div><div class="ig-name"><b>dou_fabric</b><span>'+esc(p.title||"인스타 게시글")+'</span></div><span class="version">v'+esc(p.version)+'</span></div>'+ (contentType(p)==="REELS"?reelPreview(p):media.length?'<div class="media"><div class="pics" data-pics="'+p.id+'">'+media.map((u,i)=>'<img loading="lazy" src="'+esc(u)+'" alt="게시 사진 '+(i+1)+' / '+media.length+'">').join('')+'</div>'+(media.length>1?'<button class="arrow prev" data-slide="-1" aria-label="이전 사진">'+ICON.left+'</button><button class="arrow next" data-slide="1" aria-label="다음 사진">'+ICON.right+'</button>':'')+'<span class="counter">'+(at+1)+'/'+media.length+'</span></div>':'')+'<div class="body"><div class="chips"><span class="state s-'+p.state+'">'+esc(p.state==="review"&&!me.is_admin?"수정 중":STATE_KO[p.state]||p.state)+'</span><span class="content-type">'+contentLabel(p)+'</span></div>'+publishNotice(p)+fields+'<div class="meta">'+ICON.clock+'<span>'+(p.state==="published"?'게시 시간 · '+kst(p.published_at):'게시 예정 · '+kst(p.scheduled_at))+'</span></div>'+changes(p)+(["revision","review"].includes(p.state)&&!me.is_admin?'<div class="note">수정 중이에요. 수정이 끝나면 다시 승인 대기에 올라와요.</div>':'')+(p.error&&p.state!=="published"?'<div class="err">'+esc(p.error)+'</div>':'')+(p.ig_permalink?'<a class="perm" href="'+esc(p.ig_permalink)+'" target="_blank" rel="noopener noreferrer">'+ICON.link+'인스타에서 보기</a>':'')+'<div class="btns">'+btns+'</div>'+(log?'<div class="log">'+log+'</div>':'')+'</div></article>';
 }
 function inTab(p,t) {
+ if(t.key==="publishedDeleted")return !!me?.is_admin&&p.state==="published"&&publishedHiddenIds.has(Number(p.id));
+ if(t.key==="published"&&publishedHiddenIds.has(Number(p.id)))return false;
  if(t.key==="adminApproval") return !!me?.is_admin && p.state==="review";
  if(p.state==="review" && me?.is_admin) return false;
  if(t.key==="published" && p.published_at && Date.now()-new Date(p.published_at).getTime()>30*864e5) return false;
@@ -248,11 +254,11 @@ function inTab(p,t) {
 function render() {
  if(!me) return;
  if(approvalEditor || trashDialog || isPlaying()) {markPending();return;}
- if(["admin","adminApproval","trash"].includes(tab)&&!me.is_admin) tab="approval";
- const cur=tab==="trash"&&me.is_admin?{key:"trash",label:"휴지통",states:["cancelled"]}:visibleTabs().find(t=>t.key===tab);
+ if(["admin","adminApproval","trash","publishedDeleted"].includes(tab)&&!me.is_admin) tab="approval";
+ const cur=tab==="publishedDeleted"&&me.is_admin?{key:"publishedDeleted",label:"삭제한 게시완료",states:["published"]}:tab==="trash"&&me.is_admin?{key:"trash",label:"휴지통",states:["cancelled"]}:visibleTabs().find(t=>t.key===tab);
  const list=tab==="trash"&&me.is_admin?trashPosts:(cur ? posts.filter(p=>inTab(p,cur)) : []);
- if(tab==="published") list.reverse();
- $app.innerHTML='<header class="appbar"><button class="brand" data-home aria-label="홈으로"><img class="logo" src="logo-dou.png?v=1" alt="DOU FABRIC" width="159" height="22"><span class="brand-sub">SNS 승인센터</span></button><span class="sp"></span><button class="role'+(me.is_admin?' admin':'')+'" data-account aria-haspopup="true" aria-label="계정 메뉴">'+esc(me.is_admin?"Admin":me.role==="owner"?"Director":me.role)+'<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button><div class="acct" data-acct hidden>'+(me.is_admin?'<button class="acct-push" data-remind>알람 다시 보내기</button><button data-tab="trash">휴지통</button>':pushSupported()?'<button class="acct-push" data-push>알람켜기</button>':'')+'<button class="acct-out" data-logout>로그아웃</button></div><button id="refresh" class="iconbtn" aria-label="새로고침" title="새로고침">'+ICON.refresh+'</button>'+(me.is_admin?'<button data-tab="admin" class="iconbtn'+(tab==="admin"?' on':'')+'" aria-label="관리 설정" title="관리 설정">'+ICON.admin+'</button>':'')+'</header><main><div class="statusline"><span class="dot"></span><span id="refresh-note">'+(drafts.size?'저장하지 않은 내용이 있어요.':pending?pendingText():'한국시간 기준 · 예약은 서버에서 결정')+'</span></div><div id="pending-refresh" class="banner warn" role="status"'+(pending?'':' hidden')+'>'+ (pending?'새로고침 대기 · '+esc(pendingText()):'')+'</div>'+banners()+(tab==="admin"?'<div class="pagehead"><h2>관리 설정</h2></div>'+adminView():tab==="adminApproval"?'<div class="pagehead"><h2>관리자 승인</h2><span class="cnt">'+list.length+'건</span></div><p class="subnote">소개글·해시태그를 바로 고친 뒤 관리자 승인을 누르세요. 사장님 승인 대기로 이동하며 인스타에는 게시되지 않아요.</p>'+(list.length?list.map(card).join(''):'<div class="empty">관리자 승인을 기다리는 글이 없어요.</div>'):'<div class="pagehead"><h2>'+esc(cur?cur.label:"")+'</h2><span class="cnt">'+(tab==="published"?'최근 30일 · ':'')+list.length+'건</span></div>'+(list.length?list.map(card).join(''):'<div class="empty">'+ICON.inbox+(tab==="approval"?'승인할 글이 없어요.':'글이 없어요.')+'</div>'))+'</main><nav class="tabbar" aria-label="메뉴"><div class="tabbar-in">'+visibleTabs().map(t=>{const n=posts.filter(p=>inTab(p,t)).length;return '<button data-tab="'+t.key+'" class="'+(tab===t.key?'on':'')+'"'+(tab===t.key?' aria-current="page"':'')+'>'+(ICON[t.key]||"")+'<span class="lb">'+t.label+'</span><span class="n'+(n?(["approval","adminApproval"].includes(t.key)?' hot':''):' zero')+'">'+n+'</span></button>';}).join('')+'</div></nav>';
+ if(["published","publishedDeleted"].includes(tab)) list.reverse();
+ $app.innerHTML='<header class="appbar"><button class="brand" data-home aria-label="홈으로"><img class="logo" src="logo-dou.png?v=1" alt="DOU FABRIC" width="159" height="22"><span class="brand-sub">SNS 승인센터</span></button><span class="sp"></span><button class="role'+(me.is_admin?' admin':'')+'" data-account aria-haspopup="true" aria-label="계정 메뉴">'+esc(me.is_admin?"Admin":me.role==="owner"?"Director":me.role)+'<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button><div class="acct" data-acct hidden>'+(me.is_admin?'<button class="acct-push" data-remind>알람 다시 보내기</button><button data-tab="trash">휴지통</button><button data-tab="publishedDeleted">삭제한 게시완료</button>':pushSupported()?'<button class="acct-push" data-push>알람켜기</button>':'')+'<button class="acct-out" data-logout>로그아웃</button></div><button id="refresh" class="iconbtn" aria-label="새로고침" title="새로고침">'+ICON.refresh+'</button>'+(me.is_admin?'<button data-tab="admin" class="iconbtn'+(tab==="admin"?' on':'')+'" aria-label="관리 설정" title="관리 설정">'+ICON.admin+'</button>':'')+'</header><main><div class="statusline"><span class="dot"></span><span id="refresh-note">'+(drafts.size?'저장하지 않은 내용이 있어요.':pending?pendingText():'한국시간 기준 · 예약은 서버에서 결정')+'</span></div><div id="pending-refresh" class="banner warn" role="status"'+(pending?'':' hidden')+'>'+ (pending?'새로고침 대기 · '+esc(pendingText()):'')+'</div>'+banners()+(tab==="admin"?'<div class="pagehead"><h2>관리 설정</h2></div>'+adminView():tab==="adminApproval"?'<div class="pagehead"><h2>관리자 승인</h2><span class="cnt">'+list.length+'건</span></div><p class="subnote">소개글·해시태그를 바로 고친 뒤 관리자 승인을 누르세요. 사장님 승인 대기로 이동하며 인스타에는 게시되지 않아요.</p>'+(list.length?list.map(card).join(''):'<div class="empty">관리자 승인을 기다리는 글이 없어요.</div>'):'<div class="pagehead"><h2>'+esc(cur?cur.label:"")+'</h2><span class="cnt">'+(tab==="published"?'최근 30일 · ':'')+list.length+'건</span></div>'+(list.length?list.map(card).join(''):'<div class="empty">'+ICON.inbox+(tab==="approval"?'승인할 글이 없어요.':'글이 없어요.')+'</div>'))+'</main><nav class="tabbar" aria-label="메뉴"><div class="tabbar-in">'+visibleTabs().map(t=>{const n=posts.filter(p=>inTab(p,t)).length;return '<button data-tab="'+t.key+'" class="'+(tab===t.key?'on':'')+'"'+(tab===t.key?' aria-current="page"':'')+'>'+(ICON[t.key]||"")+'<span class="lb">'+t.label+'</span><span class="n'+(n?(["approval","adminApproval"].includes(t.key)?' hot':''):' zero')+'">'+n+'</span></button>';}).join('')+'</div></nav>';
  $app.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>setTab(b.dataset.tab));
  $app.querySelectorAll('[data-home]').forEach(b=>b.onclick=()=>setTab(homeTab()));
  const acctBtn=$app.querySelectorAll('[data-account]')[0], acctBox=$app.querySelectorAll('[data-acct]')[0];
@@ -289,6 +295,30 @@ function render() {
  if(tab==="admin") bindAdmin();
 }
 
+
+
+function openPublishedListDialog(kind,id){
+ if(busy||trashDialog||!me?.is_admin||!publishedVisibilityReady)return;
+ const restore=kind==='restore-published',p=posts.find(x=>Number(x.id)===Number(id));
+ if(!p||p.state!=='published'||(restore?tab!=='publishedDeleted'||!publishedHiddenIds.has(Number(id)):kind!=='hide-published'||tab!=='published'||publishedHiddenIds.has(Number(id))))return;
+ $app.querySelectorAll('video[data-reel]').forEach(v=>v.pause());
+ const dialog=document.createElement('dialog');trashDialog=dialog;dialog.className='trash-dialog';dialog.setAttribute('aria-labelledby','published-list-title');
+ dialog.innerHTML='<h2 id="published-list-title">'+(restore?'게시완료 목록으로 복구할까요?':'게시완료 목록에서 삭제할까요?')+'</h2><p><b>'+esc(p.title||'제목 없음')+'</b></p><p>'+(restore?'앱 게시완료 목록에 다시 표시합니다. 인스타 재게시·예약·승인은 하지 않습니다.':'앱 목록에서만 삭제합니다. 인스타 게시물·사진·영상·게시 이력은 지우지 않습니다. Admin 메뉴의 ‘삭제한 게시완료’에서 복구할 수 있어요.')+'</p><p class="err" data-list-error role="status"></p><div class="btns"><button class="btn ghost" data-list-cancel>취소</button><button class="btn '+(restore?'ok':'warn')+'" data-list-confirm>'+(restore?'복구':'삭제')+'</button></div>';
+ const cancel=dialog.querySelector('[data-list-cancel]'),confirm=dialog.querySelector('[data-list-confirm]');
+ const close=()=>{if(busy)return;dialog.close();dialog.remove();trashDialog=null;};cancel.onclick=close;dialog.oncancel=e=>{e.preventDefault();close();};
+ confirm.onclick=async()=>{
+  if(busy||confirm.hidden||trashDialog!==dialog)return;busy=true;dialog.querySelectorAll('button').forEach(b=>b.disabled=true);
+  try{
+   const args={p_id:p.id,p_version:p.version};if(!restore)args.p_confirmation='목록삭제';
+   const {data,error}=await sb.rpc(restore?'restore_published_list_v37':'hide_published_list_v37',args);if(error)throw error;const r=rowOf(data);
+   if(r?.ok!==true||String(r.id)!==String(p.id)||r.hidden!==!restore)throw Error('목록 변경 결과를 확인하지 못했어요.');
+   if(restore)publishedHiddenIds.delete(Number(p.id));else publishedHiddenIds.add(Number(p.id));
+   busy=false;close();render();await load();toast(restore?'게시완료 목록으로 복구했어요.':'앱 목록에서 삭제했어요. 인스타와 원본은 그대로예요.');
+  }catch(e){dialog.querySelector('[data-list-error]').textContent='완료 여부를 확인해야 합니다: '+errMsg(e)+' 닫은 뒤 새로고침해서 게시완료와 삭제한 게시완료를 확인해 주세요. 같은 작업을 반복하지 마세요.';confirm.hidden=true;}
+  finally{busy=false;cancel.disabled=false;}
+ };
+ document.body.appendChild(dialog);dialog.showModal();cancel.focus();
+}
 
 let mediaCleanupPromise=null;
 async function cleanupDeletedMedia(){
@@ -432,6 +462,7 @@ async function saveReview(p,submit) {
  drafts.delete(p.id); return r;
 }
 async function act(kind,id) {
+ if(["hide-published","restore-published"].includes(kind)){openPublishedListDialog(kind,id);return;}
  if(kind==="purge"){openPermanentDeleteDialog(id);return;}
  if(["trash","restore"].includes(kind)){openTrashDialog(kind,id);return;}
  if(busy) return;
