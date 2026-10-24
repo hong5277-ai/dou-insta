@@ -222,7 +222,7 @@ function changes(p) {
  if(JSON.stringify(o.media||[])!==JSON.stringify(p.media||[])) rows.push('<div>사진 변경: '+(o.media||[]).length+'장 → '+(p.media||[]).length+'장</div>');
  return '<div class="note">'+(p.boss_revision_note&&p.boss_revision_note!==note?'<b>사장님 요청 원문</b><div>'+esc(p.boss_revision_note)+'</div>':'')+'<b>수정 요청</b><div>'+esc(note||"기록 없음")+'</div><details'+(me.is_admin && p.state==="review"?' open':'')+'><summary>변경 전·후 비교 (v'+esc(o.version??"이전")+' → v'+esc(p.version)+')</summary>'+ (rows.join("")||'<p>현재까지 바뀐 내용이 없어요.</p>')+'</details></div>';
 }
-const actKo=a=>({admin_trash:"휴지통 이동",admin_restore:"관리자 승인으로 복구",create:"초안 등록",edit:"수정",review:"1차 검토",review_submit:"승인대기로 이동",review_edit:"텍스트 수정",approval_edit:"승인대기 본문 수정",edit_approval_text:"승인대기 본문 수정",admin_revision:"AI 수정 요청",approve:"승인",request_revision:"수정 요청",cancel_schedule:"예약 취소",claim:"올리기 시작",published:"게시 완료",failed:"실패",unknown:"확인 필요",blocked:"게시 막음",device_link:"폰 연결",set_publish:"자동게시 설정",revoke_sessions:"기기 로그아웃",token_refreshed:"인스타 연결 연장",token_refresh_failed:"연결 연장 실패",push_remind:"알림 다시 보내기"}[a]||a);
+const actKo=a=>({admin_permanent_delete:"완전 삭제",admin_trash:"휴지통 이동",admin_restore:"관리자 승인으로 복구",create:"초안 등록",edit:"수정",review:"1차 검토",review_submit:"승인대기로 이동",review_edit:"텍스트 수정",approval_edit:"승인대기 본문 수정",edit_approval_text:"승인대기 본문 수정",admin_revision:"AI 수정 요청",approve:"승인",request_revision:"수정 요청",cancel_schedule:"예약 취소",claim:"올리기 시작",published:"게시 완료",failed:"실패",unknown:"확인 필요",blocked:"게시 막음",device_link:"폰 연결",set_publish:"자동게시 설정",revoke_sessions:"기기 로그아웃",token_refreshed:"인스타 연결 연장",token_refresh_failed:"연결 연장 실패",push_remind:"알림 다시 보내기"}[a]||a);
 function card(p) {
  const editable=me.is_admin && p.state==="review" && tab==="adminApproval";
  const d=drafts.get(p.id)||p, media=p.media||[], at=Math.min(slideIndex.get(p.id)||0,Math.max(0,media.length-1));
@@ -233,7 +233,7 @@ function card(p) {
  if(owner()&&p.state==="approval"&&!publishLocked(p)) btns=button("edit-text","본문 수정","ghost")+button("revise","수정 요청","warn")+button("approve","승인","ok")+button("now","지금 게시","now");
  if(owner()&&p.state==="scheduled") btns=button("cancel-schedule","예약 취소","warn");
  if(me.is_admin&&['review','approval'].includes(p.state)&&!publishLocked(p)&&!p.scheduled_at&&!p.published_at&&!p.ig_container_id&&!p.ig_media_id&&!p.ig_permalink&&!p.publish_claimed_at&&!p.publish_phase)btns+=button('trash','삭제','warn');
- if(me.is_admin&&tab==='trash'&&p.state==='cancelled')btns=button('restore','복구','ok');
+ if(me.is_admin&&tab==='trash'&&p.state==='cancelled')btns=button('restore','복구','ok')+(canPermanentDelete(p)?button('purge','완전 삭제','warn'):'');
  const log=me.is_admin && tab==="adminApproval" ? audits.filter(a=>a.post_id===p.id).slice(0,4).map(a=>'<div>'+kst(a.at)+' · '+esc(a.actor_label||"")+' · '+esc(actKo(a.action))+(a.detail?' · '+esc(typeof a.detail==="object"?JSON.stringify(a.detail):a.detail):'')+'</div>').join("") : "";
  const fields=editable ? '<div class="inline-editor" data-editor="'+p.id+'"><label>제목(관리용)<input data-field="title" value="'+esc(d.title)+'" maxlength="500"></label><label>본문<textarea data-field="caption">'+esc(d.caption)+'</textarea></label><label>해시태그<textarea class="tag-input" data-field="hashtags">'+esc(d.hashtags)+'</textarea></label><p class="small draft-note">'+(drafts.has(p.id)?'저장하지 않은 수정 내용이 있어요.':'제목·본문·해시태그만 수정할 수 있어요.')+'</p></div>' : '<div class="cap'+(String(p.caption||"").split("\n").length>5||String(p.caption||"").length>180?' clamp':'')+'" data-cap="'+p.id+'">'+esc(p.caption)+'</div>'+(String(p.caption||"").split("\n").length>5||String(p.caption||"").length>180?'<button class="more" data-more="'+p.id+'">본문 전체 보기</button>':'')+(p.hashtags?'<div class="tags">'+esc(p.hashtags)+'</div>':'');
  return '<article class="card" data-post="'+p.id+'"><div class="ig-head"><div class="avatar">DOU</div><div class="ig-name"><b>dou_fabric</b><span>'+esc(p.title||"인스타 게시글")+'</span></div><span class="version">v'+esc(p.version)+'</span></div>'+ (contentType(p)==="REELS"?reelPreview(p):media.length?'<div class="media"><div class="pics" data-pics="'+p.id+'">'+media.map((u,i)=>'<img loading="lazy" src="'+esc(u)+'" alt="게시 사진 '+(i+1)+' / '+media.length+'">').join('')+'</div>'+(media.length>1?'<button class="arrow prev" data-slide="-1" aria-label="이전 사진">'+ICON.left+'</button><button class="arrow next" data-slide="1" aria-label="다음 사진">'+ICON.right+'</button>':'')+'<span class="counter">'+(at+1)+'/'+media.length+'</span></div>':'')+'<div class="body"><div class="chips"><span class="state s-'+p.state+'">'+esc(p.state==="review"&&!me.is_admin?"수정 중":STATE_KO[p.state]||p.state)+'</span><span class="content-type">'+contentLabel(p)+'</span></div>'+publishNotice(p)+fields+'<div class="meta">'+ICON.clock+'<span>'+(p.state==="published"?'게시 시간 · '+kst(p.published_at):'게시 예정 · '+kst(p.scheduled_at))+'</span></div>'+changes(p)+(["revision","review"].includes(p.state)&&!me.is_admin?'<div class="note">수정 중이에요. 수정이 끝나면 다시 승인 대기에 올라와요.</div>':'')+(p.error&&p.state!=="published"?'<div class="err">'+esc(p.error)+'</div>':'')+(p.ig_permalink?'<a class="perm" href="'+esc(p.ig_permalink)+'" target="_blank" rel="noopener noreferrer">'+ICON.link+'인스타에서 보기</a>':'')+'<div class="btns">'+btns+'</div>'+(log?'<div class="log">'+log+'</div>':'')+'</div></article>';
@@ -288,6 +288,21 @@ function render() {
  if(tab==="admin") bindAdmin();
 }
 
+
+function canPermanentDelete(p){return !!me?.is_admin&&p?.state==='cancelled'&&!['scheduled_at','published_at','ig_container_id','ig_media_id','ig_permalink','publish_claimed_at','publish_phase'].some(k=>p[k]!==null&&p[k]!==undefined);}
+function openPermanentDeleteDialog(id){
+ if(busy||trashDialog||tab!=='trash')return;const p=trashPosts.find(x=>x.id===id);if(!canPermanentDelete(p))return;
+ $app.querySelectorAll('video[data-reel]').forEach(v=>v.pause());const dialog=document.createElement('dialog');trashDialog=dialog;dialog.className='trash-dialog';dialog.setAttribute('aria-labelledby','purge-title');
+ dialog.innerHTML='<h2 id="purge-title">완전히 삭제할까요?</h2><p><b>'+esc(p.title||'제목 없음')+'</b></p><p>승인앱의 글과 등록 내용을 영구 삭제합니다. <strong>삭제 후에는 복구할 수 없습니다.</strong> 최소한의 삭제 이력은 남습니다.</p><p>공유될 수 있는 서버 사진·영상 파일, 휴대폰 원본, 인스타 게시물은 삭제하지 않습니다. 저장공간 정리 기능은 아닙니다.</p><label for="purge-confirm-text">아래에 <b>완전삭제</b>를 입력해 주세요.</label><input id="purge-confirm-text" autocomplete="off" autocorrect="off" spellcheck="false" style="width:100%;box-sizing:border-box;padding:12px;font-size:18px;margin:10px 0"/><p class="err" data-purge-error role="status"></p><div class="btns"><button class="btn ghost" data-purge-cancel>취소</button><button class="btn warn" data-purge-confirm disabled>완전 삭제</button></div>';
+ document.body.appendChild(dialog);dialog.showModal();const input=dialog.querySelector('#purge-confirm-text'),confirm=dialog.querySelector('[data-purge-confirm]');
+ const close=()=>{if(busy)return;dialog.close();dialog.remove();trashDialog=null;};dialog.querySelector('[data-purge-cancel]').onclick=close;dialog.oncancel=e=>{e.preventDefault();close();};input.oninput=()=>{confirm.disabled=busy||input.value.trim()!=='완전삭제';};dialog.querySelector('[data-purge-cancel]').focus();
+ confirm.onclick=async()=>{
+  if(busy||input.value.trim()!=='완전삭제')return;busy=true;input.disabled=true;dialog.querySelectorAll('button').forEach(b=>b.disabled=true);
+  try{const {data,error}=await sb.rpc('permanent_delete_post_v1',{p_id:p.id,p_version:p.version,p_confirmation:input.value.trim()});if(error)throw error;const r=rowOf(data);if(r?.ok!==true||r?.deleted!==true||String(r.id)!==String(p.id))throw Error('삭제 결과를 확인하지 못했습니다.');drafts.delete(id);posts=posts.filter(x=>x.id!==id);trashPosts=trashPosts.filter(x=>x.id!==id);busy=false;close();render();await load();toast('완전 삭제했어요. 이 글은 복구할 수 없습니다. 서버 파일은 보존했습니다.');}
+  catch(e){dialog.querySelector('[data-purge-error]').textContent='완료 여부를 확인해야 합니다: '+errMsg(e)+' 창을 닫고 새로고침해 휴지통을 확인해 주세요. 자동으로 다시 삭제하지 않습니다.';confirm.hidden=true;}
+  finally{busy=false;dialog.querySelector('[data-purge-cancel]').disabled=false;}
+ };
+}
 
 function openTrashDialog(kind,id){
  if(!me?.is_admin||busy||trashDialog)return;
@@ -397,6 +412,7 @@ async function saveReview(p,submit) {
  drafts.delete(p.id); return r;
 }
 async function act(kind,id) {
+ if(kind==="purge"){openPermanentDeleteDialog(id);return;}
  if(["trash","restore"].includes(kind)){openTrashDialog(kind,id);return;}
  if(busy) return;
  let p=posts.find(x=>x.id===id); if(!p)return;
